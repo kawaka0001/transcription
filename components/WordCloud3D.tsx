@@ -13,10 +13,35 @@ interface WordMeshProps {
 function WordMesh({ word }: WordMeshProps) {
   const meshRef = useRef<THREE.Mesh>(null);
 
-  // ゆっくり回転するアニメーション
+  // 各文字ごとに異なる回転パラメータを生成（useMemoで固定）
+  const rotationParams = useMemo(() => {
+    // シード値を文字列から生成（同じ単語は同じ回転パターンになる）
+    const seed = word.text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const random = (index: number) => {
+      const x = Math.sin(seed * 12.9898 + index) * 43758.5453;
+      return x - Math.floor(x);
+    };
+
+    return {
+      // 初期回転角度（0-2π）
+      initialY: random(1) * Math.PI * 2,
+      // 回転速度（0.05 ~ 0.2、各文字で異なる）
+      speedY: random(2) * 0.15 + 0.05,
+    };
+  }, [word.text]);
+
+  // 初期回転を設定
+  useFrame(() => {
+    if (meshRef.current && !meshRef.current.userData.initialized) {
+      meshRef.current.rotation.y = rotationParams.initialY;
+      meshRef.current.userData.initialized = true;
+    }
+  });
+
+  // Y軸で異なる速度で回転するアニメーション
   useFrame((state, delta) => {
     if (meshRef.current) {
-      meshRef.current.rotation.y += delta * 0.1;
+      meshRef.current.rotation.y += delta * rotationParams.speedY;
     }
   });
 

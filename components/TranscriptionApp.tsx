@@ -266,7 +266,7 @@ export default function TranscriptionApp() {
               </p>
             ) : (
               <div className="space-y-3">
-                {[...transcripts].reverse().map((t, index) => (
+                {transcripts.map((t, index) => (
                   <div
                     key={t.timestamp}
                     className="p-5 glass-card rounded-2xl shadow-lg hover:scale-[1.02] hover:border-cyan-500/30 transition-all fade-in-up"
