@@ -277,20 +277,17 @@ interface WordCloud3DProps {
 }
 
 export default function WordCloud3D({ words, onWordClick, onWordDelete }: WordCloud3DProps) {
-  // ロギング: コンポーネントがマウントされたことを確認
+  // ロギング: コンポーネントのライフサイクル追跡
   useEffect(() => {
-    console.log('🌌 WordCloud3D: コンポーネントがマウントされました');
+    console.log('🌌 WordCloud3D: マウント完了');
     return () => {
-      console.log('🌌 WordCloud3D: コンポーネントがアンマウントされました');
+      console.log('🌌 WordCloud3D: アンマウント');
     };
   }, []);
 
-  // ロギング: wordsの変化を監視
+  // ロギング: wordsデータの更新追跡
   useEffect(() => {
-    console.log('🌌 WordCloud3D: words更新', {
-      wordCount: words.length,
-      words: words.map(w => ({ text: w.text, position: w.position, size: w.size, frequency: w.frequency }))
-    });
+    console.log('🌌 WordCloud3D: データ更新', { wordCount: words.length });
   }, [words]);
 
   // 画面サイズに応じてカメラ位置とFOVを調整
@@ -343,23 +340,20 @@ export default function WordCloud3D({ words, onWordClick, onWordDelete }: WordCl
         camera={{ position: cameraConfig.position, fov: cameraConfig.fov }}
         gl={{ alpha: true }}
         style={{ background: 'transparent' }}
-        onCreated={() => console.log('🌌 WordCloud3D: Canvasが作成されました', { cameraConfig })}
+        onCreated={() => console.log('🌌 WordCloud3D: Canvas作成完了')}
       >
         <ambientLight intensity={0.3} />
         <pointLight position={[10, 10, 10]} intensity={1} color="#ffffff" />
         <pointLight position={[-10, -10, -10]} intensity={0.3} color="#ffffff" />
 
-        {words.map((word, index) => {
-          console.log(`🌌 WordCloud3D: WordMeshをレンダリング [${index}]`, word.text);
-          return (
-            <WordMesh
-              key={`${word.text}-${index}`}
-              word={word}
-              onWordClick={onWordClick}
-              onWordDelete={onWordDelete}
-            />
-          );
-        })}
+        {words.map((word, index) => (
+          <WordMesh
+            key={`${word.text}-${index}`}
+            word={word}
+            onWordClick={onWordClick}
+            onWordDelete={onWordDelete}
+          />
+        ))}
 
         <OrbitControls
           enableZoom={true}

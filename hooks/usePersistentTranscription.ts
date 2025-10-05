@@ -2,12 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSpeechRecognition } from './useSpeechRecognition';
-import type { Transcript, SpeechRecognitionConfig } from '@/types/speech';
-import {
-  saveToIndexedDB,
-  getLatestFromIndexedDB,
-  clearIndexedDB,
-} from '@/lib/indexeddb-storage';
+import type { Transcript, SpeechRecognitionConfig, Word } from '@/types/speech';
+import { transcriptionDataManager } from '@/lib/transcription-data-manager';
 import {
   startAutoSync,
   stopAutoSync,
@@ -49,25 +45,29 @@ export function usePersistentTranscription(config?: SpeechRecognitionConfig) {
     isAutoSyncRunning: false,
   });
 
-  // 初期化：IndexedDBから最新データを復元
+  // 初期化：データマネージャーから最新データを復元
   useEffect(() => {
     async function loadInitialData() {
       try {
         logger.info(
           `${LOCATION}:loadInitialData`,
           '初期化開始',
-          'IndexedDBから最新データを読み込んでいます',
+          'データマネージャーから最新データを読み込んでいます',
           {}
         );
 
-        const latestTranscripts = await getLatestFromIndexedDB(DISPLAY_LIMIT);
+        // セッションを開始または再開
+        await transcriptionDataManager.getCurrentSessionId();
+
+        // 最新の文字起こしデータを取得
+        const latestTranscripts = await transcriptionDataManager.getTranscripts(DISPLAY_LIMIT);
         setDisplayTranscripts(latestTranscripts);
         setIsInitialized(true);
 
         logger.info(
           `${LOCATION}:loadInitialData`,
           '初期化完了',
-          'IndexedDBからのデータ読み込みが完了しました',
+          'データマネージャーからのデータ読み込みが完了しました',
           {
             count: latestTranscripts.length,
           }
@@ -76,7 +76,7 @@ export function usePersistentTranscription(config?: SpeechRecognitionConfig) {
         logger.error(
           `${LOCATION}:loadInitialData`,
           '初期化エラー',
-          'IndexedDBからのデータ読み込みに失敗しました',
+          'データマネージャーからのデータ読み込みに失敗しました',
           {},
           error as Error
         );
@@ -102,19 +102,20 @@ export function usePersistentTranscription(config?: SpeechRecognitionConfig) {
     };
   }, []);
 
-  // 新しい文字起こしが追加されたらIndexedDBに保存
+  // 新しい文字起こしが追加されたらデータマネージャーに保存
   useEffect(() => {
     if (transcript.length === 0) return;
 
     const latestTranscript = transcript[transcript.length - 1];
 
-    // IndexedDBに保存
-    saveToIndexedDB(latestTranscript)
+    // データマネージャーに保存
+    transcriptionDataManager
+      .addTranscript(latestTranscript)
       .then(() => {
         logger.debug(
           `${LOCATION}:useEffect:save`,
-          'IndexedDBに保存',
-          '新しい文字起こしをIndexedDBに保存しました',
+          'データマネージャーに保存',
+          '新しい文字起こしをデータマネージャーに保存しました',
           {
             timestamp: latestTranscript.timestamp,
             textLength: latestTranscript.text.length,
@@ -130,8 +131,8 @@ export function usePersistentTranscription(config?: SpeechRecognitionConfig) {
       .catch(error => {
         logger.error(
           `${LOCATION}:useEffect:save`,
-          'IndexedDB保存エラー',
-          'IndexedDBへの保存に失敗しました',
+          'データマネージャー保存エラー',
+          'データマネージャーへの保存に失敗しました',
           {
             transcript: latestTranscript,
           },
@@ -166,19 +167,19 @@ export function usePersistentTranscription(config?: SpeechRecognitionConfig) {
     );
   }, [stopSpeech, displayTranscripts.length]);
 
-  // クリア（IndexedDBとReact Stateの両方）
+  // クリア（データマネージャーとReact Stateの両方）
   const clearAll = useCallback(async () => {
     try {
       logger.info(
         `${LOCATION}:clearAll`,
         '全データクリア開始',
-        'IndexedDBとReact Stateをクリアします',
+        'データマネージャーとReact Stateをクリアします',
         {
           displayCount: displayTranscripts.length,
         }
       );
 
-      await clearIndexedDB();
+      await transcriptionDataManager.clearAll();
       clearSpeech();
       setDisplayTranscripts([]);
 

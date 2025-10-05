@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { usePersistentTranscription } from '@/hooks/usePersistentTranscription';
-import { generateWordCloudData, generateSentenceCloudData } from '@/lib/keyword-extractor';
+import { transcriptionDataManager } from '@/lib/transcription-data-manager';
 import type { Word } from '@/types/speech';
 import { logger } from '@/lib/logger';
 
@@ -42,14 +42,6 @@ export default function TranscriptionApp() {
   const [isHeaderOpen, setIsHeaderOpen] = useState(false); // ヘッダーの開閉状態
   const [showTimestamps, setShowTimestamps] = useState(false); // タイムスタンプの表示/非表示
 
-  // wordCloudDataの変化を監視
-  useEffect(() => {
-    console.log('📊 TranscriptionApp: wordCloudData更新', {
-      wordCloudDataLength: wordCloudData.length,
-      wordCloudData
-    });
-  }, [wordCloudData]);
-
   // 重要な単語をハイライトするヘルパー関数（メモ化）
   const highlightKeywords = useCallback((text: string, keywords: Set<string>): JSX.Element => {
     const words = text.split(/(\s+|[、。！？,.!?]+)/);
@@ -76,90 +68,87 @@ export default function TranscriptionApp() {
 
   // 文字起こしが更新されたらワードクラウドとキーワードを再生成
   useEffect(() => {
-    console.log('📊 TranscriptionApp: ワードクラウド生成useEffect実行', {
-      transcriptsLength: transcripts.length,
-      displayMode
-    });
-
     if (transcripts.length > 0) {
-      try {
-        const texts = transcripts.map(t => t.text);
-        console.log('📊 TranscriptionApp: texts生成完了', { textsLength: texts.length, texts });
+      // データマネージャーを使ってワードクラウドを生成・保存
+      const maxItems = displayMode === 'sentences' ? 15 : 50;
 
-        // 表示モードに応じてデータを生成
-        const newWords = displayMode === 'sentences'
-          ? generateSentenceCloudData(texts, 15)
-          : generateWordCloudData(texts, 50);
-
-        console.log('📊 TranscriptionApp: newWords生成完了', { newWordsLength: newWords.length, newWords });
-
-        // 前回のデータと比較して頻度が上がった単語/文を検出
-        setWordCloudData((prevWords) => {
-          const prevWordMap = new Map(
-            prevWords.map((w) => [`${w.text}-${w.position.join(',')}`, w.frequency])
-          );
-
-          const updatedWords = newWords.map((word) => {
-            const key = `${word.text}-${word.position.join(',')}`;
-            const prevFrequency = prevWordMap.get(key);
-
-            // 既存の単語で頻度が上がった場合のみエフェクト表示
-            const frequencyIncreased =
-              prevFrequency !== undefined && word.frequency > prevFrequency;
-
-            return {
-              ...word,
-              justClicked: frequencyIncreased,
-            };
+      transcriptionDataManager
+        .generateAndSaveWordCloud(displayMode, maxItems, 'v1.0.0')
+        .then((newWords) => {
+          console.log('📊 TranscriptionApp: ワードクラウド生成完了（データマネージャー経由）', {
+            displayMode,
+            transcriptCount: transcripts.length,
+            wordCloudSize: newWords.length
           });
 
-          // エフェクトフラグを600ms後にクリア
-          if (updatedWords.some((w) => w.justClicked)) {
-            setTimeout(() => {
-              setWordCloudData((current) =>
-                current.map((w) => ({ ...w, justClicked: false }))
-              );
-            }, 600);
-          }
+          // 前回のデータと比較して頻度が上がった単語/文を検出
+          setWordCloudData((prevWords) => {
+            const prevWordMap = new Map(
+              prevWords.map((w) => [`${w.text}-${w.position.join(',')}`, w.frequency])
+            );
 
-          console.log('📊 TranscriptionApp: updatedWords生成完了', { updatedWordsLength: updatedWords.length, updatedWords });
-          return updatedWords;
+            const updatedWords = newWords.map((word) => {
+              const key = `${word.text}-${word.position.join(',')}`;
+              const prevFrequency = prevWordMap.get(key);
+
+              // 既存の単語で頻度が上がった場合のみエフェクト表示
+              const frequencyIncreased =
+                prevFrequency !== undefined && word.frequency > prevFrequency;
+
+              return {
+                ...word,
+                justClicked: frequencyIncreased,
+              };
+            });
+
+            // エフェクトフラグを600ms後にクリア
+            if (updatedWords.some((w) => w.justClicked)) {
+              setTimeout(() => {
+                setWordCloudData((current) =>
+                  current.map((w) => ({ ...w, justClicked: false }))
+                );
+              }, 600);
+            }
+
+            return updatedWords;
+          });
+
+          // ワードクラウドデータから頻度の高いキーワードを抽出
+          const topKeywords = newWords
+            .filter(w => w.frequency >= 2 && w.text.length >= 2)
+            .slice(0, 5)
+            .map(w => w.text.toLowerCase());
+          setKeywords(new Set(topKeywords));
+
+          logger.debug(
+            `${LOCATION}:useEffect`,
+            'ワードクラウド更新',
+            `${displayMode === 'sentences' ? '文' : '単語'}クラウドを再生成しました`,
+            {
+              displayMode,
+              transcriptCount: transcripts.length,
+              wordCloudSize: newWords.length,
+              topKeywords: Array.from(topKeywords),
+            }
+          );
+        })
+        .catch((err) => {
+          console.error('📊 TranscriptionApp: ワードクラウド生成エラー', {
+            displayMode,
+            transcriptCount: transcripts.length,
+            error: err
+          });
+          logger.error(
+            `${LOCATION}:useEffect`,
+            'ワードクラウド生成エラー',
+            'ワードクラウドの生成中にエラーが発生しました',
+            {
+              displayMode,
+              transcriptCount: transcripts.length,
+            },
+            err as Error
+          );
         });
-
-        // ワードクラウドデータから頻度の高いキーワードを抽出（重複処理を削減）
-        const topKeywords = newWords
-          .filter(w => w.frequency >= 2 && w.text.length >= 2) // 頻度2以上、2文字以上
-          .slice(0, 5) // 上位5個に制限
-          .map(w => w.text.toLowerCase());
-        setKeywords(new Set(topKeywords));
-
-        logger.debug(
-          `${LOCATION}:useEffect`,
-          'ワードクラウド更新',
-          `${displayMode === 'sentences' ? '文' : '単語'}クラウドを再生成しました`,
-          {
-            displayMode,
-            transcriptCount: transcripts.length,
-            wordCloudSize: newWords.length,
-            topKeywords: Array.from(topKeywords),
-            totalTextLength: texts.join('').length,
-          }
-        );
-      } catch (err) {
-        console.error('📊 TranscriptionApp: ワードクラウド生成エラー', err);
-        logger.error(
-          `${LOCATION}:useEffect`,
-          'ワードクラウド生成エラー',
-          'ワードクラウドの生成中にエラーが発生しました',
-          {
-            displayMode,
-            transcriptCount: transcripts.length,
-          },
-          err as Error
-        );
-      }
-    } else {
-      console.log('📊 TranscriptionApp: transcriptsが空なのでワードクラウド生成をスキップ');
     }
   }, [transcripts, displayMode]);
 
