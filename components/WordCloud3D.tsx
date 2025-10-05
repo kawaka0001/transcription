@@ -6,82 +6,166 @@ import { OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import type { Word } from '@/types/speech';
 
-// 星のパーティクルエフェクト
+// モダンな星エフェクト（グロー + カラーグラデーション + 衝撃波リング）
 function SparkleEffect({ duration = 600 }: { duration?: number }) {
-  const pointsRef = useRef<THREE.Points>(null);
+  const particlesRef = useRef<THREE.Points>(null);
+  const ring1Ref = useRef<THREE.Mesh>(null);
+  const ring2Ref = useRef<THREE.Mesh>(null);
   const startTimeRef = useRef(Date.now());
 
   // パーティクルの初期位置と速度を生成
   const particles = useMemo(() => {
-    const count = 20; // パーティクル数
+    const count = 30; // パーティクル数を増加
     const positions = new Float32Array(count * 3);
     const velocities: THREE.Vector3[] = [];
+    const sizes = new Float32Array(count);
 
     for (let i = 0; i < count; i++) {
       // 球状にランダム配置
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI;
-      const radius = 0.3;
+      const radius = 0.2 + Math.random() * 0.3;
 
       positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
       positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
       positions[i * 3 + 2] = radius * Math.cos(phi);
 
-      // 外側への速度ベクトル
+      // 外側への速度ベクトル（ランダム性を追加）
+      const speed = 2 + Math.random() * 2;
       velocities.push(
         new THREE.Vector3(
-          positions[i * 3] * 3,
-          positions[i * 3 + 1] * 3,
-          positions[i * 3 + 2] * 3
+          positions[i * 3] * speed,
+          positions[i * 3 + 1] * speed,
+          positions[i * 3 + 2] * speed
         )
       );
+
+      // サイズにバリエーション
+      sizes[i] = 0.1 + Math.random() * 0.25;
     }
 
-    return { positions, velocities };
+    return { positions, velocities, sizes };
   }, []);
 
   // アニメーション
   useFrame(() => {
-    if (!pointsRef.current) return;
-
     const elapsed = Date.now() - startTimeRef.current;
     const progress = Math.min(elapsed / duration, 1);
 
-    // パーティクルを外側に拡散
-    const positionArray = pointsRef.current.geometry.attributes.position.array as Float32Array;
-    for (let i = 0; i < particles.velocities.length; i++) {
-      positionArray[i * 3] = particles.positions[i * 3] + particles.velocities[i].x * progress;
-      positionArray[i * 3 + 1] =
-        particles.positions[i * 3 + 1] + particles.velocities[i].y * progress;
-      positionArray[i * 3 + 2] =
-        particles.positions[i * 3 + 2] + particles.velocities[i].z * progress;
-    }
-    pointsRef.current.geometry.attributes.position.needsUpdate = true;
+    // パーティクルアニメーション
+    if (particlesRef.current) {
+      const positionArray = particlesRef.current.geometry.attributes.position
+        .array as Float32Array;
+      const sizeArray = particlesRef.current.geometry.attributes.size.array as Float32Array;
 
-    // フェードアウト
-    const material = pointsRef.current.material as THREE.PointsMaterial;
-    material.opacity = 1 - progress;
+      for (let i = 0; i < particles.velocities.length; i++) {
+        // 加速しながら拡散（イージングアウト）
+        const easeProgress = 1 - Math.pow(1 - progress, 3);
+        positionArray[i * 3] =
+          particles.positions[i * 3] + particles.velocities[i].x * easeProgress;
+        positionArray[i * 3 + 1] =
+          particles.positions[i * 3 + 1] + particles.velocities[i].y * easeProgress;
+        positionArray[i * 3 + 2] =
+          particles.positions[i * 3 + 2] + particles.velocities[i].z * easeProgress;
+
+        // サイズを最初大きく→小さくアニメーション
+        const sizeProgress = Math.sin(progress * Math.PI);
+        sizeArray[i] = particles.sizes[i] * (1 + sizeProgress);
+      }
+
+      particlesRef.current.geometry.attributes.position.needsUpdate = true;
+      particlesRef.current.geometry.attributes.size.needsUpdate = true;
+
+      // カラーグラデーション（ゴールド → シアン → マゼンタ）
+      const material = particlesRef.current.material as THREE.PointsMaterial;
+      if (progress < 0.33) {
+        const t = progress / 0.33;
+        material.color.setRGB(1 - t * 0.3, 0.84 - t * 0.34, t * 0.9);
+      } else if (progress < 0.66) {
+        const t = (progress - 0.33) / 0.33;
+        material.color.setRGB(0.7 - t * 0.3, 0.5 + t * 0.3, 0.9 + t * 0.1);
+      } else {
+        const t = (progress - 0.66) / 0.34;
+        material.color.setRGB(0.4 + t * 0.6, 0.8 - t * 0.3, 1 - t * 0.2);
+      }
+
+      // フェードアウト
+      material.opacity = 1 - Math.pow(progress, 2);
+    }
+
+    // 衝撃波リング1のアニメーション
+    if (ring1Ref.current) {
+      const scale = 1 + progress * 4;
+      ring1Ref.current.scale.set(scale, scale, 1);
+      const material = ring1Ref.current.material as THREE.MeshBasicMaterial;
+      material.opacity = (1 - progress) * 0.6;
+    }
+
+    // 衝撃波リング2のアニメーション（遅延）
+    if (ring2Ref.current) {
+      const delayedProgress = Math.max(0, (progress - 0.2) / 0.8);
+      const scale = 1 + delayedProgress * 3.5;
+      ring2Ref.current.scale.set(scale, scale, 1);
+      const material = ring2Ref.current.material as THREE.MeshBasicMaterial;
+      material.opacity = (1 - delayedProgress) * 0.4;
+    }
   });
 
   return (
-    <points ref={pointsRef}>
-      <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          count={particles.positions.length / 3}
-          array={particles.positions}
-          itemSize={3}
+    <group>
+      {/* パーティクル */}
+      <points ref={particlesRef}>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            count={particles.positions.length / 3}
+            array={particles.positions}
+            itemSize={3}
+          />
+          <bufferAttribute
+            attach="attributes-size"
+            count={particles.sizes.length}
+            array={particles.sizes}
+            itemSize={1}
+          />
+        </bufferGeometry>
+        <pointsMaterial
+          size={0.2}
+          color="#FFD700"
+          transparent
+          opacity={1}
+          sizeAttenuation={true}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
         />
-      </bufferGeometry>
-      <pointsMaterial
-        size={0.15}
-        color="#FFD700"
-        transparent
-        opacity={1}
-        sizeAttenuation={true}
-        blending={THREE.AdditiveBlending}
-      />
-    </points>
+      </points>
+
+      {/* 衝撃波リング1 */}
+      <mesh ref={ring1Ref}>
+        <ringGeometry args={[0.8, 1, 32]} />
+        <meshBasicMaterial
+          color="#00FFFF"
+          transparent
+          opacity={0.6}
+          side={THREE.DoubleSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* 衝撃波リング2 */}
+      <mesh ref={ring2Ref}>
+        <ringGeometry args={[0.9, 1.05, 32]} />
+        <meshBasicMaterial
+          color="#FF00FF"
+          transparent
+          opacity={0.4}
+          side={THREE.DoubleSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -112,17 +196,11 @@ function WordMesh({ word, onWordClick, onWordDelete }: WordMeshProps) {
     };
   }, [word.text]);
 
-  // 初期回転と両面表示を設定
+  // 初期回転を設定
   useFrame(() => {
     if (meshRef.current && !meshRef.current.userData.initialized) {
       meshRef.current.rotation.y = rotationParams.initialY;
       meshRef.current.userData.initialized = true;
-
-      // マテリアルを両面表示に設定
-      if (meshRef.current.material) {
-        const material = meshRef.current.material as THREE.Material;
-        material.side = THREE.DoubleSide;
-      }
     }
   });
 
@@ -159,6 +237,7 @@ function WordMesh({ word, onWordClick, onWordDelete }: WordMeshProps) {
         outlineWidth={0.05}
         outlineColor="rgba(0, 0, 0, 0.8)"
         outlineOpacity={0.8}
+        material-side={THREE.DoubleSide}
         onClick={(e) => {
           e.stopPropagation();
           onWordClick?.(word);

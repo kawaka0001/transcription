@@ -64,11 +64,42 @@ export default function TranscriptionApp() {
     if (transcripts.length > 0) {
       try {
         const texts = transcripts.map(t => t.text);
-        const words = generateWordCloudData(texts, 50);
-        setWordCloudData(words);
+        const newWords = generateWordCloudData(texts, 50);
+
+        // 前回のデータと比較して頻度が上がった単語を検出
+        setWordCloudData((prevWords) => {
+          const prevWordMap = new Map(
+            prevWords.map((w) => [`${w.text}-${w.position.join(',')}`, w.frequency])
+          );
+
+          const updatedWords = newWords.map((word) => {
+            const key = `${word.text}-${word.position.join(',')}`;
+            const prevFrequency = prevWordMap.get(key);
+
+            // 既存の単語で頻度が上がった場合のみエフェクト表示
+            const frequencyIncreased =
+              prevFrequency !== undefined && word.frequency > prevFrequency;
+
+            return {
+              ...word,
+              justClicked: frequencyIncreased,
+            };
+          });
+
+          // エフェクトフラグを600ms後にクリア
+          if (updatedWords.some((w) => w.justClicked)) {
+            setTimeout(() => {
+              setWordCloudData((current) =>
+                current.map((w) => ({ ...w, justClicked: false }))
+              );
+            }, 600);
+          }
+
+          return updatedWords;
+        });
 
         // ワードクラウドデータから頻度の高いキーワードを抽出（重複処理を削減）
-        const topKeywords = words
+        const topKeywords = newWords
           .filter(w => w.frequency >= 2 && w.text.length >= 2) // 頻度2以上、2文字以上
           .slice(0, 5) // 上位5個に制限
           .map(w => w.text.toLowerCase());
@@ -80,7 +111,7 @@ export default function TranscriptionApp() {
           'ワードクラウドとキーワードを再生成しました',
           {
             transcriptCount: transcripts.length,
-            wordCloudSize: words.length,
+            wordCloudSize: newWords.length,
             topKeywords: Array.from(topKeywords),
             totalTextLength: texts.join('').length,
           }
