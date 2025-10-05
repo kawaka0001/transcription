@@ -6,6 +6,85 @@ import { OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import type { Word } from '@/types/speech';
 
+// 星のパーティクルエフェクト
+function SparkleEffect({ duration = 600 }: { duration?: number }) {
+  const pointsRef = useRef<THREE.Points>(null);
+  const startTimeRef = useRef(Date.now());
+
+  // パーティクルの初期位置と速度を生成
+  const particles = useMemo(() => {
+    const count = 20; // パーティクル数
+    const positions = new Float32Array(count * 3);
+    const velocities: THREE.Vector3[] = [];
+
+    for (let i = 0; i < count; i++) {
+      // 球状にランダム配置
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const radius = 0.3;
+
+      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = radius * Math.cos(phi);
+
+      // 外側への速度ベクトル
+      velocities.push(
+        new THREE.Vector3(
+          positions[i * 3] * 3,
+          positions[i * 3 + 1] * 3,
+          positions[i * 3 + 2] * 3
+        )
+      );
+    }
+
+    return { positions, velocities };
+  }, []);
+
+  // アニメーション
+  useFrame(() => {
+    if (!pointsRef.current) return;
+
+    const elapsed = Date.now() - startTimeRef.current;
+    const progress = Math.min(elapsed / duration, 1);
+
+    // パーティクルを外側に拡散
+    const positionArray = pointsRef.current.geometry.attributes.position.array as Float32Array;
+    for (let i = 0; i < particles.velocities.length; i++) {
+      positionArray[i * 3] = particles.positions[i * 3] + particles.velocities[i].x * progress;
+      positionArray[i * 3 + 1] =
+        particles.positions[i * 3 + 1] + particles.velocities[i].y * progress;
+      positionArray[i * 3 + 2] =
+        particles.positions[i * 3 + 2] + particles.velocities[i].z * progress;
+    }
+    pointsRef.current.geometry.attributes.position.needsUpdate = true;
+
+    // フェードアウト
+    const material = pointsRef.current.material as THREE.PointsMaterial;
+    material.opacity = 1 - progress;
+  });
+
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          count={particles.positions.length / 3}
+          array={particles.positions}
+          itemSize={3}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.15}
+        color="#FFD700"
+        transparent
+        opacity={1}
+        sizeAttenuation={true}
+        blending={THREE.AdditiveBlending}
+      />
+    </points>
+  );
+}
+
 interface WordMeshProps {
   word: Word;
   onWordClick?: (word: Word) => void;
@@ -101,6 +180,8 @@ function WordMesh({ word, onWordClick, onWordDelete }: WordMeshProps) {
       >
         {word.text}
       </Text>
+      {/* クリック時の星エフェクト */}
+      {word.justClicked && <SparkleEffect duration={600} />}
     </group>
   );
 }
