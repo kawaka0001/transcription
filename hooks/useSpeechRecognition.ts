@@ -144,7 +144,27 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
         return;
       }
 
-      // 実際のエラー
+      // 権限エラーは致命的なので再起動を完全に禁止
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        logger.error(
+          `${LOCATION}:onerror`,
+          '音声認識権限エラー（致命的）',
+          `マイク権限エラー: ${event.error}`,
+          {
+            error: event.error,
+            message: event.message,
+            isListening,
+            transcriptCount: transcript.length,
+            config,
+          }
+        );
+        setError(`マイクの使用が許可されていません。ブラウザの設定を確認してください。`);
+        setIsListening(false);
+        shouldRestartRef.current = false; // 権限エラーでは絶対に再起動しない
+        return;
+      }
+
+      // その他のエラー
       logger.error(
         `${LOCATION}:onerror`,
         '音声認識エラー',
