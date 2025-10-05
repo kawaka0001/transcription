@@ -41,6 +41,8 @@ export default function TranscriptionApp() {
   const [viewMode, setViewMode] = useState<ViewMode>('both'); // デフォルトは両方表示
   const [isHeaderOpen, setIsHeaderOpen] = useState(false); // ヘッダーの開閉状態
   const [showTimestamps, setShowTimestamps] = useState(false); // タイムスタンプの表示/非表示
+  const [showGrid, setShowGrid] = useState(false); // 3D空間のグリッド表示/非表示
+  const [resetTrigger, setResetTrigger] = useState(0); // カメラリセットのトリガー
 
   // 重要な単語をハイライトするヘルパー関数（メモ化）
   const highlightKeywords = useCallback((text: string, keywords: Set<string>): JSX.Element => {
@@ -366,6 +368,22 @@ export default function TranscriptionApp() {
                   {showTimestamps ? '🕐' : '⏱️'}
                 </button>
                 <button
+                  onClick={() => setResetTrigger(prev => prev + 1)}
+                  className="px-3 py-2 glass-button rounded-lg font-semibold text-white shadow-lg text-xs"
+                  title="3Dカメラをリセット"
+                >
+                  🎯
+                </button>
+                <button
+                  onClick={() => setShowGrid(prev => !prev)}
+                  className={`px-3 py-2 glass-button rounded-lg font-semibold text-white shadow-lg text-xs ${
+                    showGrid ? 'bg-blue-500/30' : ''
+                  }`}
+                  title={showGrid ? '中心軸を非表示' : '中心軸を表示'}
+                >
+                  {showGrid ? '📐' : '📐'}
+                </button>
+                <button
                   onClick={handleManualSync}
                   disabled={syncStatus.isSyncing}
                   className="px-3 py-2 glass-button rounded-lg font-semibold text-white shadow-lg disabled:opacity-50 text-xs"
@@ -403,6 +421,8 @@ export default function TranscriptionApp() {
               words={wordCloudData}
               onWordClick={handleWordClick}
               onWordDelete={handleWordDelete}
+              showGrid={showGrid}
+              resetTrigger={resetTrigger}
             />
             {!isListening && wordCloudData.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-4 md:p-8">

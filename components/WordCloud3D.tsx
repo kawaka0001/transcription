@@ -242,7 +242,6 @@ function WordMesh({ word, onWordClick, onWordDelete }: WordMeshProps) {
         outlineWidth={isSentence ? 0.02 : 0.05}
         outlineColor="rgba(0, 0, 0, 0.9)"
         outlineOpacity={0.9}
-        material-side={THREE.DoubleSide}
         onClick={(e) => {
           e.stopPropagation();
           onWordClick?.(word);
@@ -263,6 +262,7 @@ function WordMesh({ word, onWordClick, onWordDelete }: WordMeshProps) {
         }}
       >
         {word.text}
+        <meshBasicMaterial side={THREE.DoubleSide} />
       </Text>
       {/* クリック時の星エフェクト */}
       {word.justClicked && <SparkleEffect duration={600} />}
@@ -274,9 +274,13 @@ interface WordCloud3DProps {
   words: Word[];
   onWordClick?: (word: Word) => void;
   onWordDelete?: (word: Word) => void;
+  showGrid?: boolean;
+  resetTrigger?: number;
 }
 
-export default function WordCloud3D({ words, onWordClick, onWordDelete }: WordCloud3DProps) {
+export default function WordCloud3D({ words, onWordClick, onWordDelete, showGrid = false, resetTrigger = 0 }: WordCloud3DProps) {
+  const controlsRef = useRef<any>(null);
+
   // ロギング: コンポーネントのライフサイクル追跡
   useEffect(() => {
     console.log('🌌 WordCloud3D: マウント完了');
@@ -295,6 +299,13 @@ export default function WordCloud3D({ words, onWordClick, onWordDelete }: WordCl
     position: [0, 0, 25] as [number, number, number],
     fov: 75,
   });
+
+  // 親コンポーネントからのリセット要求を処理
+  useEffect(() => {
+    if (resetTrigger > 0 && controlsRef.current) {
+      controlsRef.current.reset();
+    }
+  }, [resetTrigger]);
 
   useEffect(() => {
     const updateCameraConfig = () => {
@@ -346,6 +357,14 @@ export default function WordCloud3D({ words, onWordClick, onWordDelete }: WordCl
         <pointLight position={[10, 10, 10]} intensity={1} color="#ffffff" />
         <pointLight position={[-10, -10, -10]} intensity={0.3} color="#ffffff" />
 
+        {/* グリッドヘルパー（中心軸の可視化） */}
+        {showGrid && (
+          <group>
+            <gridHelper args={[20, 20, '#4444ff', '#222244']} />
+            <axesHelper args={[10]} />
+          </group>
+        )}
+
         {words.map((word, index) => (
           <WordMesh
             key={`${word.text}-${index}`}
@@ -356,6 +375,7 @@ export default function WordCloud3D({ words, onWordClick, onWordDelete }: WordCl
         ))}
 
         <OrbitControls
+          ref={controlsRef}
           enableZoom={true}
           enablePan={true}
           enableRotate={true}
