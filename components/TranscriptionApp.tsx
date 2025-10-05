@@ -42,6 +42,14 @@ export default function TranscriptionApp() {
   const [isHeaderOpen, setIsHeaderOpen] = useState(false); // ヘッダーの開閉状態
   const [showTimestamps, setShowTimestamps] = useState(false); // タイムスタンプの表示/非表示
 
+  // wordCloudDataの変化を監視
+  useEffect(() => {
+    console.log('📊 TranscriptionApp: wordCloudData更新', {
+      wordCloudDataLength: wordCloudData.length,
+      wordCloudData
+    });
+  }, [wordCloudData]);
+
   // 重要な単語をハイライトするヘルパー関数（メモ化）
   const highlightKeywords = useCallback((text: string, keywords: Set<string>): JSX.Element => {
     const words = text.split(/(\s+|[、。！？,.!?]+)/);
@@ -68,14 +76,22 @@ export default function TranscriptionApp() {
 
   // 文字起こしが更新されたらワードクラウドとキーワードを再生成
   useEffect(() => {
+    console.log('📊 TranscriptionApp: ワードクラウド生成useEffect実行', {
+      transcriptsLength: transcripts.length,
+      displayMode
+    });
+
     if (transcripts.length > 0) {
       try {
         const texts = transcripts.map(t => t.text);
+        console.log('📊 TranscriptionApp: texts生成完了', { textsLength: texts.length, texts });
 
         // 表示モードに応じてデータを生成
         const newWords = displayMode === 'sentences'
           ? generateSentenceCloudData(texts, 15)
           : generateWordCloudData(texts, 50);
+
+        console.log('📊 TranscriptionApp: newWords生成完了', { newWordsLength: newWords.length, newWords });
 
         // 前回のデータと比較して頻度が上がった単語/文を検出
         setWordCloudData((prevWords) => {
@@ -106,6 +122,7 @@ export default function TranscriptionApp() {
             }, 600);
           }
 
+          console.log('📊 TranscriptionApp: updatedWords生成完了', { updatedWordsLength: updatedWords.length, updatedWords });
           return updatedWords;
         });
 
@@ -129,6 +146,7 @@ export default function TranscriptionApp() {
           }
         );
       } catch (err) {
+        console.error('📊 TranscriptionApp: ワードクラウド生成エラー', err);
         logger.error(
           `${LOCATION}:useEffect`,
           'ワードクラウド生成エラー',
@@ -140,6 +158,8 @@ export default function TranscriptionApp() {
           err as Error
         );
       }
+    } else {
+      console.log('📊 TranscriptionApp: transcriptsが空なのでワードクラウド生成をスキップ');
     }
   }, [transcripts, displayMode]);
 

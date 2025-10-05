@@ -277,6 +277,22 @@ interface WordCloud3DProps {
 }
 
 export default function WordCloud3D({ words, onWordClick, onWordDelete }: WordCloud3DProps) {
+  // ロギング: コンポーネントがマウントされたことを確認
+  useEffect(() => {
+    console.log('🌌 WordCloud3D: コンポーネントがマウントされました');
+    return () => {
+      console.log('🌌 WordCloud3D: コンポーネントがアンマウントされました');
+    };
+  }, []);
+
+  // ロギング: wordsの変化を監視
+  useEffect(() => {
+    console.log('🌌 WordCloud3D: words更新', {
+      wordCount: words.length,
+      words: words.map(w => ({ text: w.text, position: w.position, size: w.size, frequency: w.frequency }))
+    });
+  }, [words]);
+
   // 画面サイズに応じてカメラ位置とFOVを調整
   const [cameraConfig, setCameraConfig] = useState({
     position: [0, 0, 25] as [number, number, number],
@@ -327,19 +343,23 @@ export default function WordCloud3D({ words, onWordClick, onWordDelete }: WordCl
         camera={{ position: cameraConfig.position, fov: cameraConfig.fov }}
         gl={{ alpha: true }}
         style={{ background: 'transparent' }}
+        onCreated={() => console.log('🌌 WordCloud3D: Canvasが作成されました', { cameraConfig })}
       >
         <ambientLight intensity={0.3} />
         <pointLight position={[10, 10, 10]} intensity={1} color="#ffffff" />
         <pointLight position={[-10, -10, -10]} intensity={0.3} color="#ffffff" />
 
-        {words.map((word, index) => (
-          <WordMesh
-            key={`${word.text}-${index}`}
-            word={word}
-            onWordClick={onWordClick}
-            onWordDelete={onWordDelete}
-          />
-        ))}
+        {words.map((word, index) => {
+          console.log(`🌌 WordCloud3D: WordMeshをレンダリング [${index}]`, word.text);
+          return (
+            <WordMesh
+              key={`${word.text}-${index}`}
+              word={word}
+              onWordClick={onWordClick}
+              onWordDelete={onWordDelete}
+            />
+          );
+        })}
 
         <OrbitControls
           enableZoom={true}
