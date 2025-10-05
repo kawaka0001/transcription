@@ -20,10 +20,17 @@ function WordMesh({ word }: WordMeshProps) {
     }
   });
 
-  // 頻度に基づいて色を決定（青→緑→黄→赤）
+  // 頻度に基づいて色を決定（シアン→マゼンタ→イエロー）
   const color = useMemo(() => {
-    const hue = (1 - Math.min(word.frequency / 10, 1)) * 240; // 240 (blue) to 0 (red)
-    return `hsl(${hue}, 80%, 60%)`;
+    const normalizedFreq = Math.min(word.frequency / 10, 1);
+
+    if (normalizedFreq < 0.33) {
+      return '#00ffff'; // Cyan - 低頻度
+    } else if (normalizedFreq < 0.66) {
+      return '#ff00ff'; // Magenta - 中頻度
+    } else {
+      return '#ffff00'; // Yellow - 高頻度（重要）
+    }
   }, [word.frequency]);
 
   return (
@@ -34,8 +41,9 @@ function WordMesh({ word }: WordMeshProps) {
         color={color}
         anchorX="center"
         anchorY="middle"
-        outlineWidth={0.05}
-        outlineColor="#000000"
+        outlineWidth={0.08}
+        outlineColor="rgba(0, 0, 0, 0.6)"
+        outlineOpacity={0.8}
       >
         {word.text}
       </Text>
@@ -52,11 +60,12 @@ export default function WordCloud3D({ words }: WordCloud3DProps) {
     <div className="w-full h-full">
       <Canvas
         camera={{ position: [0, 0, 25], fov: 75 }}
-        className="bg-gradient-to-b from-slate-900 to-slate-800"
+        gl={{ alpha: true }}
+        style={{ background: 'transparent' }}
       >
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} intensity={1} />
-        <pointLight position={[-10, -10, -10]} intensity={0.5} />
+        <ambientLight intensity={0.3} />
+        <pointLight position={[10, 10, 10]} intensity={1} color="#ffffff" />
+        <pointLight position={[-10, -10, -10]} intensity={0.3} color="#ffffff" />
 
         {words.map((word, index) => (
           <WordMesh key={`${word.text}-${index}`} word={word} />
