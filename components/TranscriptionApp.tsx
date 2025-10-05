@@ -1,34 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
-import { generateWordCloudData, extractKeywords } from '@/lib/keyword-extractor';
+import { generateWordCloudData } from '@/lib/keyword-extractor';
 import WordCloud3D from './WordCloud3D';
 import type { Word } from '@/types/speech';
+import { logger } from '@/lib/logger';
 
-// 重要な単語をハイライトするヘルパー関数
-function highlightKeywords(text: string, keywords: Set<string>): JSX.Element {
-  const words = text.split(/(\s+|[、。！？,.!?]+)/);
-
-  return (
-    <>
-      {words.map((word, index) => {
-        const cleanWord = word.toLowerCase().trim();
-        // 空文字、記号のみ、1文字以下は除外
-        const isKeyword = cleanWord.length >= 2 && keywords.has(cleanWord);
-
-        if (isKeyword) {
-          return (
-            <span key={index} className="lyrics-highlight">
-              {word}
-            </span>
-          );
-        }
-        return <span key={index}>{word}</span>;
-      })}
-    </>
-  );
-}
+const LOCATION = 'components/TranscriptionApp.tsx';
 
 export default function TranscriptionApp() {
   const {
@@ -43,27 +22,73 @@ export default function TranscriptionApp() {
     lang: 'ja-JP',
     continuous: true,
     interimResults: true,
+    maxAlternatives: 5, // 認識候補を増やして精度向上
   });
 
   const [wordCloudData, setWordCloudData] = useState<Word[]>([]);
   const [keywords, setKeywords] = useState<Set<string>>(new Set());
 
+  // 重要な単語をハイライトするヘルパー関数（メモ化）
+  const highlightKeywords = useCallback((text: string, keywords: Set<string>): JSX.Element => {
+    const words = text.split(/(\s+|[、。！？,.!?]+)/);
+
+    return (
+      <>
+        {words.map((word, index) => {
+          const cleanWord = word.toLowerCase().trim();
+          // 空文字、記号のみ、1文字以下は除外
+          const isKeyword = cleanWord.length >= 2 && keywords.has(cleanWord);
+
+          if (isKeyword) {
+            return (
+              <span key={index} className="lyrics-highlight">
+                {word}
+              </span>
+            );
+          }
+          return <span key={index}>{word}</span>;
+        })}
+      </>
+    );
+  }, []);
+
   // 文字起こしが更新されたらワードクラウドとキーワードを再生成
   useEffect(() => {
     if (transcript.length > 0) {
-      const texts = transcript.map(t => t.text);
-      const words = generateWordCloudData(texts, 50);
-      setWordCloudData(words);
+      try {
+        const texts = transcript.map(t => t.text);
+        const words = generateWordCloudData(texts, 50);
+        setWordCloudData(words);
 
-      // 全文からキーワードを抽出（頻度2回以上、上位5個のみ）
-      const fullText = texts.join(' ');
-      const keywordMap = extractKeywords(fullText);
-      const topKeywords = Array.from(keywordMap.entries())
-        .filter(([word, freq]) => freq >= 2 && word.length >= 2) // 頻度2以上、2文字以上
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5) // 上位5個に制限
-        .map(([word]) => word);
-      setKeywords(new Set(topKeywords));
+        // ワードクラウドデータから頻度の高いキーワードを抽出（重複処理を削減）
+        const topKeywords = words
+          .filter(w => w.frequency >= 2 && w.text.length >= 2) // 頻度2以上、2文字以上
+          .slice(0, 5) // 上位5個に制限
+          .map(w => w.text.toLowerCase());
+        setKeywords(new Set(topKeywords));
+
+        logger.debug(
+          `${LOCATION}:useEffect`,
+          'ワードクラウド更新',
+          'ワードクラウドとキーワードを再生成しました',
+          {
+            transcriptCount: transcript.length,
+            wordCloudSize: words.length,
+            topKeywords: Array.from(topKeywords),
+            totalTextLength: texts.join('').length,
+          }
+        );
+      } catch (err) {
+        logger.error(
+          `${LOCATION}:useEffect`,
+          'ワードクラウド生成エラー',
+          'ワードクラウドの生成中にエラーが発生しました',
+          {
+            transcriptCount: transcript.length,
+          },
+          err as Error
+        );
+      }
     }
   }, [transcript]);
 
@@ -71,7 +96,33 @@ export default function TranscriptionApp() {
     return transcript.map(t => t.text).join(' ');
   }, [transcript]);
 
+  // エラーが発生したときにログ記録
+  useEffect(() => {
+    if (error) {
+      logger.warn(
+        `${LOCATION}:useEffect`,
+        'エラー表示',
+        'ユーザーにエラーメッセージを表示しています',
+        {
+          error,
+          isListening,
+          transcriptCount: transcript.length,
+        }
+      );
+    }
+  }, [error, isListening, transcript.length]);
+
   const handleClear = () => {
+    logger.info(
+      `${LOCATION}:handleClear`,
+      'ユーザー操作: 全データクリア',
+      'ユーザーが文字起こしとワードクラウドをクリアしました',
+      {
+        transcriptCount: transcript.length,
+        wordCloudSize: wordCloudData.length,
+        keywordCount: keywords.size,
+      }
+    );
     clearTranscript();
     setWordCloudData([]);
     setKeywords(new Set());
