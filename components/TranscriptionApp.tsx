@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { usePersistentTranscription } from '@/hooks/usePersistentTranscription';
 import { generateWordCloudData } from '@/lib/keyword-extractor';
 import WordCloud3D from './WordCloud3D';
 import type { Word } from '@/types/speech';
@@ -12,13 +12,17 @@ const LOCATION = 'components/TranscriptionApp.tsx';
 export default function TranscriptionApp() {
   const {
     isListening,
-    transcript,
+    transcripts,
     interimTranscript,
     error,
     startListening,
     stopListening,
-    clearTranscript,
-  } = useSpeechRecognition({
+    clearAll,
+    isInitialized,
+    syncStatus,
+    manualSync,
+    exportAll,
+  } = usePersistentTranscription({
     lang: 'ja-JP',
     continuous: true,
     interimResults: true,
@@ -54,9 +58,9 @@ export default function TranscriptionApp() {
 
   // 文字起こしが更新されたらワードクラウドとキーワードを再生成
   useEffect(() => {
-    if (transcript.length > 0) {
+    if (transcripts.length > 0) {
       try {
-        const texts = transcript.map(t => t.text);
+        const texts = transcripts.map(t => t.text);
         const words = generateWordCloudData(texts, 50);
         setWordCloudData(words);
 
@@ -72,7 +76,7 @@ export default function TranscriptionApp() {
           'ワードクラウド更新',
           'ワードクラウドとキーワードを再生成しました',
           {
-            transcriptCount: transcript.length,
+            transcriptCount: transcripts.length,
             wordCloudSize: words.length,
             topKeywords: Array.from(topKeywords),
             totalTextLength: texts.join('').length,
@@ -84,17 +88,17 @@ export default function TranscriptionApp() {
           'ワードクラウド生成エラー',
           'ワードクラウドの生成中にエラーが発生しました',
           {
-            transcriptCount: transcript.length,
+            transcriptCount: transcripts.length,
           },
           err as Error
         );
       }
     }
-  }, [transcript]);
+  }, [transcripts]);
 
   const fullTranscript = useMemo(() => {
-    return transcript.map(t => t.text).join(' ');
-  }, [transcript]);
+    return transcripts.map(t => t.text).join(' ');
+  }, [transcripts]);
 
   // エラーが発生したときにログ記録
   useEffect(() => {
@@ -106,49 +110,102 @@ export default function TranscriptionApp() {
         {
           error,
           isListening,
-          transcriptCount: transcript.length,
+          transcriptCount: transcripts.length,
         }
       );
     }
-  }, [error, isListening, transcript.length]);
+  }, [error, isListening, transcripts.length]);
 
-  const handleClear = () => {
+  const handleClear = async () => {
     logger.info(
       `${LOCATION}:handleClear`,
       'ユーザー操作: 全データクリア',
       'ユーザーが文字起こしとワードクラウドをクリアしました',
       {
-        transcriptCount: transcript.length,
+        transcriptCount: transcripts.length,
         wordCloudSize: wordCloudData.length,
         keywordCount: keywords.size,
       }
     );
-    clearTranscript();
+    await clearAll();
     setWordCloudData([]);
     setKeywords(new Set());
+  };
+
+  const handleManualSync = async () => {
+    try {
+      logger.info(
+        `${LOCATION}:handleManualSync`,
+        'ユーザー操作: 手動バックアップ',
+        'ユーザーが全データのバックアップを開始しました',
+        {}
+      );
+      const count = await exportAll();
+      logger.info(
+        `${LOCATION}:handleManualSync`,
+        '手動バックアップ完了',
+        `${count}件のデータをSupabaseにバックアップしました`,
+        { count }
+      );
+      alert(`✅ ${count}件のデータをSupabaseにバックアップしました`);
+    } catch (error) {
+      logger.error(
+        `${LOCATION}:handleManualSync`,
+        '手動バックアップエラー',
+        '手動バックアップに失敗しました',
+        {},
+        error as Error
+      );
+      alert('❌ バックアップに失敗しました');
+    }
   };
 
   return (
     <div className="flex flex-col h-screen">
       {/* ヘッダー */}
       <header className="glass-header text-white p-4 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-2xl font-bold drop-shadow-lg">Humanity1 - 3D Word Cloud</h1>
-          <div className="flex gap-3">
-            <button
-              onClick={isListening ? stopListening : startListening}
-              className={`px-6 py-2 rounded-xl font-semibold glass-button ${
-                isListening ? 'glass-button-active' : 'glass-button-success'
-              } text-white shadow-lg`}
-            >
-              {isListening ? '⏸️ 停止' : '🎤 開始'}
-            </button>
-            <button
-              onClick={handleClear}
-              className="px-6 py-2 glass-button rounded-xl font-semibold text-white shadow-lg"
-            >
-              🗑️ クリア
-            </button>
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between mb-2">
+            <h1 className="text-2xl font-bold drop-shadow-lg">Humanity1 - 3D Word Cloud</h1>
+            <div className="flex gap-3">
+              <button
+                onClick={isListening ? stopListening : startListening}
+                className={`px-6 py-2 rounded-xl font-semibold glass-button ${
+                  isListening ? 'glass-button-active' : 'glass-button-success'
+                } text-white shadow-lg`}
+              >
+                {isListening ? '⏸️ 停止' : '🎤 開始'}
+              </button>
+              <button
+                onClick={handleManualSync}
+                disabled={syncStatus.isSyncing}
+                className="px-4 py-2 glass-button rounded-xl font-semibold text-white shadow-lg disabled:opacity-50"
+                title="全データをSupabaseにバックアップ"
+              >
+                {syncStatus.isSyncing ? '🔄 同期中...' : '💾 保存'}
+              </button>
+              <button
+                onClick={handleClear}
+                className="px-6 py-2 glass-button rounded-xl font-semibold text-white shadow-lg"
+              >
+                🗑️ クリア
+              </button>
+            </div>
+          </div>
+          {/* 同期状態の表示 */}
+          <div className="flex items-center gap-4 text-xs opacity-80">
+            <span>📦 表示中: {transcripts.length}件</span>
+            {syncStatus.isAutoSyncRunning && (
+              <span className="flex items-center gap-1">
+                <span className="animate-pulse text-green-400">●</span>
+                自動同期: 有効
+              </span>
+            )}
+            {syncStatus.lastSyncTime > 0 && (
+              <span>
+                最終同期: {new Date(syncStatus.lastSyncTime).toLocaleTimeString('ja-JP')}
+              </span>
+            )}
           </div>
         </div>
       </header>
@@ -199,13 +256,17 @@ export default function TranscriptionApp() {
 
           {/* 確定した文字起こし */}
           <div className="space-y-3">
-            {transcript.length === 0 ? (
+            {!isInitialized ? (
+              <p className="text-white text-opacity-70 text-sm text-center py-8">
+                <span className="animate-pulse">読み込み中...</span>
+              </p>
+            ) : transcripts.length === 0 ? (
               <p className="text-white text-opacity-70 text-sm text-center py-8">
                 音声認識を開始すると、ここに文字起こしが表示されます。
               </p>
             ) : (
               <div className="space-y-3">
-                {[...transcript].reverse().map((t, index) => (
+                {[...transcripts].reverse().map((t, index) => (
                   <div
                     key={t.timestamp}
                     className="p-5 glass-card rounded-2xl shadow-lg hover:scale-[1.02] hover:border-cyan-500/30 transition-all fade-in-up"
