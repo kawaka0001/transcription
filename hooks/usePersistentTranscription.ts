@@ -4,13 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import type { Transcript, SpeechRecognitionConfig, Word } from '@/types/speech';
 import { transcriptionDataManager } from '@/lib/transcription-data-manager';
-import {
-  startAutoSync,
-  stopAutoSync,
-  syncToSupabase,
-  getSyncStatus,
-  exportAllToSupabase,
-} from '@/lib/sync-manager';
 import { logger } from '@/lib/logger';
 
 const LOCATION = 'hooks/usePersistentTranscription.ts';
@@ -89,15 +82,15 @@ export function usePersistentTranscription(config?: SpeechRecognitionConfig) {
 
   // 自動同期の開始（コンポーネントマウント時）
   useEffect(() => {
-    startAutoSync();
+    transcriptionDataManager.startAutoSync();
 
     // 同期状態の定期更新
     const statusInterval = setInterval(() => {
-      setSyncStatus(getSyncStatus());
+      setSyncStatus(transcriptionDataManager.getSyncStatus());
     }, 1000);
 
     return () => {
-      stopAutoSync();
+      transcriptionDataManager.stopAutoSync();
       clearInterval(statusInterval);
     };
   }, []);
@@ -211,7 +204,7 @@ export function usePersistentTranscription(config?: SpeechRecognitionConfig) {
         {}
       );
 
-      const syncedCount = await syncToSupabase(true);
+      const syncedCount = await transcriptionDataManager.syncToSupabase(true);
 
       logger.info(
         `${LOCATION}:manualSync`,
@@ -243,7 +236,7 @@ export function usePersistentTranscription(config?: SpeechRecognitionConfig) {
         {}
       );
 
-      const exportedCount = await exportAllToSupabase();
+      const exportedCount = await transcriptionDataManager.exportAllToSupabase();
 
       logger.info(
         `${LOCATION}:exportAll`,

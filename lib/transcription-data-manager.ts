@@ -8,8 +8,14 @@ import type {
 } from '@/types/speech';
 import { logger } from '@/lib/logger';
 import { generateWordCloudData, generateSentenceCloudData } from '@/lib/keyword-extractor';
+import { insertTranscripts, type TranscriptRow } from './supabase';
 
 const LOCATION = 'lib/transcription-data-manager.ts';
+
+// 同期設定
+const MAX_INDEXEDDB_COUNT = 300; // IndexedDBに保持する最大件数
+const SYNC_BATCH_SIZE = 50; // 1回の同期で送信する件数
+const SYNC_INTERVAL_MS = 60 * 1000; // 同期間隔（1分）
 
 // ===================================
 // IndexedDB スキーマ定義
@@ -135,6 +141,11 @@ async function initDB(): Promise<IDBPDatabase<TranscriptionDB>> {
  */
 export class TranscriptionDataManager {
   private currentSessionId: string | null = null;
+
+  // Supabase同期の状態管理
+  private isSyncing = false;
+  private lastSyncTime = 0;
+  private syncIntervalId: NodeJS.Timeout | null = null;
 
   /**
    * 新しいセッションを開始
@@ -400,6 +411,294 @@ export class TranscriptionDataManager {
   }
 
   // ===================================
+  // Supabase同期機能
+  // ===================================
+
+  /**
+   * IndexedDBのデータ数を取得
+   */
+  async getTranscriptCount(): Promise<number> {
+    const db = await initDB();
+    return await db.count(TRANSCRIPTS_STORE);
+  }
+
+  /**
+   * 古いデータを削除してSupabaseに同期
+   */
+  async syncToSupabase(force: boolean = false): Promise<number> {
+    // 既に同期中の場合はスキップ
+    if (this.isSyncing && !force) {
+      logger.debug(
+        `${LOCATION}:syncToSupabase`,
+        '同期スキップ',
+        '既に同期処理が実行中のためスキップしました',
+        {}
+      );
+      return 0;
+    }
+
+    try {
+      this.isSyncing = true;
+
+      // IndexedDB内のデータ数を確認
+      const count = await this.getTranscriptCount();
+
+      if (count <= MAX_INDEXEDDB_COUNT && !force) {
+        logger.debug(
+          `${LOCATION}:syncToSupabase`,
+          '同期不要',
+          'IndexedDBのデータ数が閾値以下のため同期をスキップしました',
+          {
+            currentCount: count,
+            maxCount: MAX_INDEXEDDB_COUNT,
+          }
+        );
+        return 0;
+      }
+
+      logger.info(
+        `${LOCATION}:syncToSupabase`,
+        '同期開始',
+        'IndexedDBからSupabaseへの同期を開始します',
+        {
+          currentCount: count,
+          maxCount: MAX_INDEXEDDB_COUNT,
+          force,
+        }
+      );
+
+      // 削除対象のデータを取得（古い順に）
+      const toSync = await this.deleteOldTranscripts(MAX_INDEXEDDB_COUNT);
+
+      if (toSync.length === 0) {
+        logger.debug(
+          `${LOCATION}:syncToSupabase`,
+          '同期対象なし',
+          '同期対象のデータがありませんでした',
+          {}
+        );
+        return 0;
+      }
+
+      // Supabase用のデータ形式に変換
+      const transcriptRows: TranscriptRow[] = toSync.map(t => ({
+        text: t.text,
+        timestamp: t.timestamp,
+        is_final: t.isFinal,
+      }));
+
+      // バッチで同期
+      let totalSynced = 0;
+      for (let i = 0; i < transcriptRows.length; i += SYNC_BATCH_SIZE) {
+        const batch = transcriptRows.slice(i, i + SYNC_BATCH_SIZE);
+
+        try {
+          const syncedCount = await insertTranscripts(batch);
+          totalSynced += syncedCount;
+
+          logger.debug(
+            `${LOCATION}:syncToSupabase`,
+            '同期バッチ完了',
+            `${syncedCount}件のデータをSupabaseに同期しました`,
+            {
+              batchNumber: Math.floor(i / SYNC_BATCH_SIZE) + 1,
+              syncedCount,
+              totalSynced,
+              remaining: transcriptRows.length - i - batch.length,
+            }
+          );
+        } catch (error) {
+          logger.error(
+            `${LOCATION}:syncToSupabase`,
+            '同期バッチ失敗',
+            `バッチ同期に失敗しました（${i}〜${i + batch.length}件目）`,
+            {
+              batchNumber: Math.floor(i / SYNC_BATCH_SIZE) + 1,
+              batchSize: batch.length,
+            },
+            error as Error
+          );
+        }
+      }
+
+      this.lastSyncTime = Date.now();
+
+      logger.info(
+        `${LOCATION}:syncToSupabase`,
+        '同期完了',
+        `合計${totalSynced}件のデータをSupabaseに同期しました`,
+        {
+          totalSynced,
+          totalAttempted: transcriptRows.length,
+          timestamp: this.lastSyncTime,
+        }
+      );
+
+      return totalSynced;
+    } catch (error) {
+      logger.error(
+        `${LOCATION}:syncToSupabase`,
+        '同期エラー',
+        '同期処理中にエラーが発生しました',
+        { force },
+        error as Error
+      );
+      throw error;
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * 定期的な自動同期を開始
+   */
+  startAutoSync(intervalMs: number = SYNC_INTERVAL_MS): void {
+    // 既に起動している場合は停止してから再起動
+    if (this.syncIntervalId) {
+      this.stopAutoSync();
+    }
+
+    logger.info(
+      `${LOCATION}:startAutoSync`,
+      '自動同期開始',
+      '定期的な自動同期を開始しました',
+      {
+        intervalMs,
+        intervalSeconds: intervalMs / 1000,
+      }
+    );
+
+    this.syncIntervalId = setInterval(async () => {
+      try {
+        await this.syncToSupabase();
+      } catch (error) {
+        logger.error(
+          `${LOCATION}:startAutoSync`,
+          '自動同期エラー',
+          '自動同期中にエラーが発生しましたが、次の同期を試行します',
+          {},
+          error as Error
+        );
+      }
+    }, intervalMs);
+
+    // 初回同期を即座に実行
+    this.syncToSupabase().catch(error => {
+      logger.error(
+        `${LOCATION}:startAutoSync`,
+        '初回同期エラー',
+        '初回同期に失敗しましたが、定期同期は継続します',
+        {},
+        error as Error
+      );
+    });
+  }
+
+  /**
+   * 自動同期を停止
+   */
+  stopAutoSync(): void {
+    if (this.syncIntervalId) {
+      clearInterval(this.syncIntervalId);
+      this.syncIntervalId = null;
+
+      logger.info(
+        `${LOCATION}:stopAutoSync`,
+        '自動同期停止',
+        '定期的な自動同期を停止しました',
+        {}
+      );
+    }
+  }
+
+  /**
+   * 同期状態を取得
+   */
+  getSyncStatus(): {
+    isSyncing: boolean;
+    lastSyncTime: number;
+    isAutoSyncRunning: boolean;
+  } {
+    return {
+      isSyncing: this.isSyncing,
+      lastSyncTime: this.lastSyncTime,
+      isAutoSyncRunning: this.syncIntervalId !== null,
+    };
+  }
+
+  /**
+   * 全データをSupabaseにエクスポート（手動バックアップ用）
+   */
+  async exportAllToSupabase(): Promise<number> {
+    try {
+      logger.info(
+        `${LOCATION}:exportAllToSupabase`,
+        '全データエクスポート開始',
+        'IndexedDBの全データをSupabaseにエクスポートします',
+        {}
+      );
+
+      const allTranscripts = await this.getAllTranscripts();
+
+      if (allTranscripts.length === 0) {
+        logger.info(
+          `${LOCATION}:exportAllToSupabase`,
+          'エクスポート対象なし',
+          'IndexedDBにデータがありません',
+          {}
+        );
+        return 0;
+      }
+
+      const transcriptRows: TranscriptRow[] = allTranscripts.map(t => ({
+        text: t.text,
+        timestamp: t.timestamp,
+        is_final: t.isFinal,
+      }));
+
+      // バッチでエクスポート
+      let totalExported = 0;
+      for (let i = 0; i < transcriptRows.length; i += SYNC_BATCH_SIZE) {
+        const batch = transcriptRows.slice(i, i + SYNC_BATCH_SIZE);
+        const exportedCount = await insertTranscripts(batch);
+        totalExported += exportedCount;
+
+        logger.debug(
+          `${LOCATION}:exportAllToSupabase`,
+          'エクスポートバッチ完了',
+          `${exportedCount}件のデータをエクスポートしました`,
+          {
+            batchNumber: Math.floor(i / SYNC_BATCH_SIZE) + 1,
+            exportedCount,
+            totalExported,
+            remaining: transcriptRows.length - i - batch.length,
+          }
+        );
+      }
+
+      logger.info(
+        `${LOCATION}:exportAllToSupabase`,
+        'エクスポート完了',
+        `合計${totalExported}件のデータをSupabaseにエクスポートしました`,
+        {
+          totalExported,
+        }
+      );
+
+      return totalExported;
+    } catch (error) {
+      logger.error(
+        `${LOCATION}:exportAllToSupabase`,
+        'エクスポートエラー',
+        'エクスポート処理中にエラーが発生しました',
+        {},
+        error as Error
+      );
+      throw error;
+    }
+  }
+
+  // ===================================
   // プライベートメソッド
   // ===================================
 
@@ -460,6 +759,73 @@ export class TranscriptionDataManager {
 
     const cursor = await index.openCursor(null, 'prev'); // 降順
     return cursor ? cursor.value : null;
+  }
+
+  /**
+   * 古いデータをIndexedDBから削除（指定件数を超えた分）
+   * @param keepCount 保持する件数
+   * @returns 削除されたデータの配列
+   */
+  private async deleteOldTranscripts(keepCount: number = 300): Promise<Transcript[]> {
+    try {
+      const db = await initDB();
+      const tx = db.transaction(TRANSCRIPTS_STORE, 'readwrite');
+      const index = tx.store.index('by-timestamp');
+
+      // 全データを取得（降順）
+      const allTranscripts: Transcript[] = [];
+      let cursor = await index.openCursor(null, 'prev');
+
+      while (cursor) {
+        allTranscripts.push(cursor.value);
+        cursor = await cursor.continue();
+      }
+
+      // 保持件数を超えた分を削除対象とする
+      const toDelete = allTranscripts.slice(keepCount);
+
+      if (toDelete.length === 0) {
+        logger.debug(
+          `${LOCATION}:deleteOldTranscripts`,
+          '削除対象なし',
+          '保持件数を超えていないため、削除対象はありません',
+          {
+            totalCount: allTranscripts.length,
+            keepCount,
+          }
+        );
+        return [];
+      }
+
+      // 削除実行
+      const deleteTx = db.transaction(TRANSCRIPTS_STORE, 'readwrite');
+      await Promise.all([
+        ...toDelete.map(t => deleteTx.store.delete(t.timestamp)),
+        deleteTx.done,
+      ]);
+
+      logger.info(
+        `${LOCATION}:deleteOldTranscripts`,
+        'IndexedDBから削除',
+        '古い文字起こしデータを削除しました',
+        {
+          totalCount: allTranscripts.length,
+          keepCount,
+          deletedCount: toDelete.length,
+        }
+      );
+
+      return toDelete;
+    } catch (error) {
+      logger.error(
+        `${LOCATION}:deleteOldTranscripts`,
+        'IndexedDB削除失敗',
+        '古いデータの削除に失敗しました',
+        { keepCount },
+        error as Error
+      );
+      throw error;
+    }
   }
 }
 
