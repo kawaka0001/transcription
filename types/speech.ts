@@ -4,6 +4,7 @@ export interface Word {
   frequency: number;
   position: [number, number, number];
   size: number;
+  justClicked?: boolean; // クリック直後のエフェクト用フラグ
 }
 
 export interface Transcript {

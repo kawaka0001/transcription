@@ -179,10 +179,23 @@ export default function TranscriptionApp() {
               frequency: word.frequency + 1,
               // サイズも少し大きくする（頻度に応じて）
               size: Math.min(word.size * 1.05, 2),
+              // 星のエフェクト用フラグ
+              justClicked: true,
             }
           : word
       )
     );
+
+    // 600ms後にエフェクトフラグをクリア
+    setTimeout(() => {
+      setWordCloudData((prevWords) =>
+        prevWords.map((word) =>
+          word.text === clickedWord.text && word.position === clickedWord.position
+            ? { ...word, justClicked: false }
+            : word
+        )
+      );
+    }, 600);
   }, []);
 
   const handleWordDelete = useCallback((deletedWord: Word) => {
@@ -296,7 +309,7 @@ export default function TranscriptionApp() {
               <p className="text-xs md:text-sm text-cyan-400 mb-2 font-semibold flex items-center gap-2">
                 <span className="animate-pulse">●</span> 認識中...
               </p>
-              <p className="text-white italic text-sm md:text-base leading-relaxed">
+              <p className="text-white italic text-sm md:text-base leading-relaxed font-medium">
                 {highlightKeywords(interimTranscript, keywords)}
               </p>
             </div>
@@ -323,7 +336,7 @@ export default function TranscriptionApp() {
                     <p className="text-xs text-gray-400 mb-2 md:mb-3 font-medium">
                       🕐 {new Date(t.timestamp).toLocaleTimeString('ja-JP')}
                     </p>
-                    <p className="text-white text-sm md:text-base leading-relaxed">
+                    <p className="text-white text-sm md:text-base leading-relaxed font-medium">
                       {highlightKeywords(t.text, keywords)}
                     </p>
                   </div>
@@ -338,7 +351,7 @@ export default function TranscriptionApp() {
               <h3 className="text-xs md:text-sm font-bold mb-2 md:mb-3 text-gray-300 flex items-center gap-2">
                 📄 全文
               </h3>
-              <p className="text-xs md:text-sm text-white whitespace-pre-wrap leading-relaxed">
+              <p className="text-xs md:text-sm text-white whitespace-pre-wrap leading-relaxed font-medium">
                 {highlightKeywords(fullTranscript, keywords)}
               </p>
             </div>
