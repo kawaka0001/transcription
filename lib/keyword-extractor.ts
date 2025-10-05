@@ -110,6 +110,119 @@ function calculateWordWeight(word: string, frequency: number): number {
   return weight;
 }
 
+// 文に分割する関数（句読点を基準に）
+function splitIntoSentences(text: string): string[] {
+  // 日本語の句読点と改行で分割
+  const sentences = text.split(/[。！？\n]+/).filter(s => s.trim().length > 0);
+  return sentences.map(s => s.trim());
+}
+
+// 文の重要度スコアを計算
+function calculateSentenceScore(
+  sentence: string,
+  wordFrequency: Map<string, number>,
+  allWords: Set<string>
+): number {
+  // 文が短すぎる（5文字未満）または長すぎる（100文字以上）場合はスコアを下げる
+  const length = sentence.length;
+  if (length < 5) return 0;
+  if (length > 100) return 0;
+
+  // 文に含まれるキーワードを抽出
+  const sentenceWords = extractKeywords(sentence);
+
+  let score = 0;
+  let keywordCount = 0;
+
+  sentenceWords.forEach((freq, word) => {
+    // 全体での出現頻度が高い単語が含まれていればスコアアップ
+    const globalFreq = wordFrequency.get(word) || 0;
+    if (globalFreq >= 2) {
+      score += globalFreq * 10; // 頻度が高い単語は重要
+      keywordCount++;
+    }
+  });
+
+  // キーワードが1つも含まれていない文は除外
+  if (keywordCount === 0) return 0;
+
+  // キーワード密度ボーナス（文が短くてもキーワードが多い場合）
+  const keywordDensity = keywordCount / (length / 10);
+  score *= (1 + keywordDensity * 0.5);
+
+  // 適度な長さの文にボーナス（15-50文字が理想）
+  if (length >= 15 && length <= 50) {
+    score *= 1.3;
+  }
+
+  return score;
+}
+
+// 重要な文を抽出する関数
+export function extractImportantSentences(
+  transcripts: string[],
+  maxSentences: number = 20
+): Array<{ text: string; score: number }> {
+  // 全文を結合
+  const fullText = transcripts.join(' ');
+
+  // 全体のキーワード頻度を取得
+  const wordFrequency = extractKeywords(fullText);
+  const allWords = new Set(wordFrequency.keys());
+
+  // 文に分割
+  const sentences = splitIntoSentences(fullText);
+
+  // 各文のスコアを計算
+  const scoredSentences = sentences
+    .map(sentence => ({
+      text: sentence,
+      score: calculateSentenceScore(sentence, wordFrequency, allWords),
+    }))
+    .filter(s => s.score > 0); // スコアが0より大きい文のみ
+
+  // スコア順にソートして上位を取得
+  return scoredSentences
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxSentences);
+}
+
+// 重要な文を3D空間用のWordデータに変換
+export function generateSentenceCloudData(
+  transcripts: string[],
+  maxSentences: number = 15
+): Word[] {
+  const importantSentences = extractImportantSentences(transcripts, maxSentences);
+
+  if (importantSentences.length === 0) return [];
+
+  const maxScore = importantSentences[0].score;
+  const minScore = importantSentences[importantSentences.length - 1].score;
+
+  // 3D空間にランダムに配置
+  return importantSentences.map(({ text, score }, index) => {
+    // スコアに基づいてサイズを計算（0.3〜0.8の範囲、文は小さめに）
+    const normalizedScore = (score - minScore) / (maxScore - minScore || 1);
+    const size = 0.3 + normalizedScore * 0.5;
+
+    // 球体状にランダム配置
+    const radius = 12;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const x = radius * Math.sin(phi) * Math.cos(theta);
+    const y = radius * Math.sin(phi) * Math.sin(theta);
+    const z = radius * Math.cos(phi);
+
+    return {
+      text,
+      timestamp: Date.now() + index, // 重複を避けるためインデックスを追加
+      frequency: Math.round(score / 10), // スコアを頻度に変換（色付けに使用）
+      position: [x, y, z],
+      size,
+    };
+  });
+}
+
 export function generateWordCloudData(
   transcripts: string[],
   maxWords: number = 50

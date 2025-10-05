@@ -125,6 +125,63 @@ body {
   animation: textGlow 2s ease-in-out infinite;
 }
 
+/* Apple Music-style Transcription Effects */
+@keyframes charFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes confirmText {
+  from {
+    opacity: 0.7;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.transcript-interim {
+  color: rgba(255, 255, 255, 0.7);
+  filter: blur(0);
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+  animation: pulse 2s ease-in-out infinite;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.transcript-confirmed {
+  animation: confirmText 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.transcript-char {
+  display: inline-block;
+  animation: charFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  opacity: 0;
+}
+
+/* Smooth glow effect */
+@keyframes smoothGlow {
+  0%, 100% {
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.2);
+  }
+  50% {
+    text-shadow: 0 0 12px rgba(0, 255, 255, 0.4);
+  }
+}
+
+.transcript-glow {
+  animation: smoothGlow 3s ease-in-out infinite;
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

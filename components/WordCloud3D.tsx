@@ -226,6 +226,9 @@ function WordMesh({ word, onWordClick, onWordDelete }: WordMeshProps) {
     }
   }, [word.frequency]);
 
+  // 文かどうかを判定（10文字以上なら文として扱う）
+  const isSentence = word.text.length > 10;
+
   return (
     <group position={word.position}>
       <Text
@@ -234,9 +237,11 @@ function WordMesh({ word, onWordClick, onWordDelete }: WordMeshProps) {
         color={isHovered ? '#ffffff' : color}
         anchorX="center"
         anchorY="middle"
-        outlineWidth={0.05}
-        outlineColor="rgba(0, 0, 0, 0.8)"
-        outlineOpacity={0.8}
+        maxWidth={isSentence ? 8 : undefined} // 文の場合は折り返しを有効化
+        textAlign="center"
+        outlineWidth={isSentence ? 0.02 : 0.05}
+        outlineColor="rgba(0, 0, 0, 0.9)"
+        outlineOpacity={0.9}
         material-side={THREE.DoubleSide}
         onClick={(e) => {
           e.stopPropagation();
