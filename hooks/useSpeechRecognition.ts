@@ -23,6 +23,10 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
   const shouldRestartRef = useRef(false); // 自動再起動フラグ
+  const lastActivityRef = useRef<number>(Date.now()); // 最後の音声認識活動時刻
+  const healthCheckIntervalRef = useRef<NodeJS.Timeout | null>(null); // ヘルスチェック用タイマー
+  const restartAttemptsRef = useRef(0); // 再起動試行回数
+  const isRestartingRef = useRef(false); // 再起動中フラグ（二重起動防止）
 
   useEffect(() => {
     // ブラウザのWeb Speech API対応チェック
@@ -66,6 +70,10 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
     }
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      // 音声認識の活動を記録
+      lastActivityRef.current = Date.now();
+      restartAttemptsRef.current = 0; // 成功したら再起動カウンタをリセット
+
       let interim = '';
       let final = '';
 
@@ -113,19 +121,20 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      // no-speechエラーは無視（一時的に音声がない状態）
+      // no-speechエラーは一時的なものなので、再起動を試みる
       if (event.error === 'no-speech') {
         logger.debug(
           `${LOCATION}:onerror`,
-          '音声認識エラー（無視）',
-          'no-speechエラー: 一時的に音声が検出されない',
+          '音声認識エラー（再起動）',
+          'no-speechエラー: 一時的に音声が検出されない - 再起動を試みます',
           {
             error: event.error,
             message: event.message,
-            isListening,
+            shouldRestart: shouldRestartRef.current,
             transcriptCount: transcript.length,
           }
         );
+        // no-speechエラーでもonendが呼ばれるので、そこで再起動される
         return;
       }
 
@@ -164,7 +173,26 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
         return;
       }
 
-      // その他のエラー
+      // network エラーの場合は再起動を試みる
+      if (event.error === 'network') {
+        logger.warn(
+          `${LOCATION}:onerror`,
+          '音声認識ネットワークエラー',
+          'ネットワークエラーが発生 - 再起動を試みます',
+          {
+            error: event.error,
+            message: event.message,
+            restartAttempts: restartAttemptsRef.current,
+          }
+        );
+        // 再起動試行回数が5回未満なら再起動を許可
+        if (restartAttemptsRef.current < 5) {
+          // onendで再起動される
+          return;
+        }
+      }
+
+      // その他のエラー - 軽微なエラーなら再起動を試みる
       logger.error(
         `${LOCATION}:onerror`,
         '音声認識エラー',
@@ -175,42 +203,80 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
           isListening,
           transcriptCount: transcript.length,
           config,
+          restartAttempts: restartAttemptsRef.current,
         }
       );
 
-      setError(`音声認識エラー: ${event.error}`);
-      setIsListening(false);
-      shouldRestartRef.current = false; // エラー時は再起動しない
+      // 深刻なエラーの場合のみ停止
+      if (restartAttemptsRef.current >= 5) {
+        setError(`音声認識エラー: ${event.error}`);
+        setIsListening(false);
+        shouldRestartRef.current = false;
+      }
     };
 
     recognition.onend = () => {
       // 自動再起動が有効な場合（continuousモードで意図的な停止でない場合）
-      if (shouldRestartRef.current && config.continuous) {
-        try {
-          recognition.start();
-          logger.info(
-            `${LOCATION}:onend`,
-            '音声認識自動再起動',
-            '音声認識が自動的に再起動されました',
-            {
-              config,
-              transcriptCount: transcript.length,
+      if (shouldRestartRef.current && config.continuous && !isRestartingRef.current) {
+        isRestartingRef.current = true; // 二重起動防止
+        restartAttemptsRef.current += 1;
+
+        // 少し待ってから再起動（即座に再起動すると失敗することがある）
+        setTimeout(() => {
+          try {
+            if (recognitionRef.current && shouldRestartRef.current) {
+              recognition.start();
+              logger.info(
+                `${LOCATION}:onend`,
+                '音声認識自動再起動',
+                '音声認識が自動的に再起動されました',
+                {
+                  config,
+                  transcriptCount: transcript.length,
+                  restartAttempts: restartAttemptsRef.current,
+                  timeSinceLastActivity: Date.now() - lastActivityRef.current,
+                }
+              );
+              setIsListening(true); // 確実にリスニング状態に
+              setError(null); // エラーをクリア
             }
-          );
-        } catch (err) {
-          logger.error(
-            `${LOCATION}:onend`,
-            '音声認識再起動失敗',
-            '音声認識の自動再起動に失敗しました',
-            {
-              config,
-              transcriptCount: transcript.length,
-            },
-            err as Error
-          );
-          setIsListening(false);
-          shouldRestartRef.current = false;
-        }
+          } catch (err) {
+            const error = err as Error;
+            // already startedエラーの場合は無視（既に起動している）
+            if (error.message && error.message.includes('already started')) {
+              logger.debug(
+                `${LOCATION}:onend`,
+                '音声認識既に起動中',
+                '音声認識は既に起動しています',
+                {}
+              );
+              setIsListening(true);
+            } else {
+              logger.error(
+                `${LOCATION}:onend`,
+                '音声認識再起動失敗',
+                '音声認識の自動再起動に失敗しました',
+                {
+                  config,
+                  transcriptCount: transcript.length,
+                  restartAttempts: restartAttemptsRef.current,
+                },
+                error
+              );
+
+              // 再試行回数が5回未満ならもう一度試す
+              if (restartAttemptsRef.current < 5) {
+                // 次のonendで再試行
+              } else {
+                setIsListening(false);
+                shouldRestartRef.current = false;
+                setError('音声認識の再起動に失敗しました。ページを再読み込みしてください。');
+              }
+            }
+          } finally {
+            isRestartingRef.current = false;
+          }
+        }, 300); // 300ms待機
       } else {
         logger.info(
           `${LOCATION}:onend`,
@@ -220,17 +286,58 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
             wasAutoRestart: shouldRestartRef.current,
             continuous: config.continuous,
             transcriptCount: transcript.length,
+            isRestarting: isRestartingRef.current,
           }
         );
-        setIsListening(false);
+        if (!shouldRestartRef.current) {
+          setIsListening(false);
+        }
       }
     };
 
     recognitionRef.current = recognition;
 
+    // ヘルスチェック: 30秒ごとに音声認識の状態を確認
+    const healthCheck = setInterval(() => {
+      const timeSinceLastActivity = Date.now() - lastActivityRef.current;
+
+      // リスニング中かつ60秒以上活動がない場合、強制再起動を試みる
+      if (shouldRestartRef.current && timeSinceLastActivity > 60000 && !isRestartingRef.current) {
+        logger.warn(
+          `${LOCATION}:healthCheck`,
+          '音声認識タイムアウト検出',
+          `${Math.floor(timeSinceLastActivity / 1000)}秒間活動なし - 強制再起動を試みます`,
+          {
+            timeSinceLastActivity,
+            restartAttempts: restartAttemptsRef.current,
+          }
+        );
+
+        // 強制的に停止して再起動
+        try {
+          if (recognitionRef.current) {
+            recognitionRef.current.stop(); // これによりonendが呼ばれ、再起動される
+          }
+        } catch (err) {
+          logger.error(
+            `${LOCATION}:healthCheck`,
+            '強制停止失敗',
+            '音声認識の強制停止に失敗しました',
+            {},
+            err as Error
+          );
+        }
+      }
+    }, 30000); // 30秒ごとにチェック
+
+    healthCheckIntervalRef.current = healthCheck;
+
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
+      }
+      if (healthCheckIntervalRef.current) {
+        clearInterval(healthCheckIntervalRef.current);
       }
     };
   }, [config.lang, config.continuous, config.interimResults]);
@@ -239,6 +346,8 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
     if (recognitionRef.current && !isListening) {
       try {
         shouldRestartRef.current = true; // 自動再起動を有効化
+        lastActivityRef.current = Date.now(); // 活動時刻を更新
+        restartAttemptsRef.current = 0; // 再起動カウンタをリセット
         recognitionRef.current.start();
         setIsListening(true);
         setError(null);
@@ -272,6 +381,7 @@ export function useSpeechRecognition(config: SpeechRecognitionConfig = {
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListening) {
       shouldRestartRef.current = false; // 意図的な停止なので自動再起動を無効化
+      restartAttemptsRef.current = 0; // 再起動カウンタをリセット
       recognitionRef.current.stop();
       setIsListening(false);
       logger.info(

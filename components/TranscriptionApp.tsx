@@ -40,6 +40,7 @@ export default function TranscriptionApp() {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('sentences'); // デフォルトは文表示
   const [viewMode, setViewMode] = useState<ViewMode>('both'); // デフォルトは両方表示
   const [isHeaderOpen, setIsHeaderOpen] = useState(false); // ヘッダーの開閉状態
+  const [showTimestamps, setShowTimestamps] = useState(false); // タイムスタンプの表示/非表示
 
   // 重要な単語をハイライトするヘルパー関数（メモ化）
   const highlightKeywords = useCallback((text: string, keywords: Set<string>): JSX.Element => {
@@ -142,9 +143,6 @@ export default function TranscriptionApp() {
     }
   }, [transcripts, displayMode]);
 
-  const fullTranscript = useMemo(() => {
-    return transcripts.map(t => t.text).join(' ');
-  }, [transcripts]);
 
   // エラーが発生したときにログ記録
   useEffect(() => {
@@ -352,6 +350,13 @@ export default function TranscriptionApp() {
                   {displayMode === 'sentences' ? '📝 文' : '🔤 単語'}
                 </button>
                 <button
+                  onClick={() => setShowTimestamps(prev => !prev)}
+                  className="px-3 py-2 glass-button rounded-lg font-semibold text-white shadow-lg text-xs"
+                  title={showTimestamps ? 'タイムスタンプを非表示' : 'タイムスタンプを表示'}
+                >
+                  {showTimestamps ? '🕐' : '⏱️'}
+                </button>
+                <button
                   onClick={handleManualSync}
                   disabled={syncStatus.isSyncing}
                   className="px-3 py-2 glass-button rounded-lg font-semibold text-white shadow-lg disabled:opacity-50 text-xs"
@@ -411,24 +416,18 @@ export default function TranscriptionApp() {
               ? 'flex-1 md:w-1/2 lg:w-96 md:flex-none border-t md:border-t-0 md:border-l'
               : 'flex-1'
           } glass-dark p-4 md:p-6 overflow-y-auto border-white border-opacity-10`}>
-          <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6 text-white drop-shadow-lg">
-            📝 文字起こし
-          </h2>
 
-          {/* リアルタイム（仮確定） - Apple Music風 */}
+          {/* リアルタイム（仮確定） */}
           {interimTranscript && (
-            <div className="mb-3 md:mb-4 p-3 md:p-4 glass-card rounded-2xl border border-cyan-400/50 shadow-lg shadow-cyan-500/10 fade-in-up">
-              <p className="text-xs md:text-sm text-cyan-400 mb-2 font-semibold flex items-center gap-2">
-                <span className="animate-pulse transcript-glow">●</span> 認識中...
-              </p>
-              <p className="transcript-interim text-sm md:text-base leading-relaxed font-medium">
+            <div className="mb-4 md:mb-6 fade-in-up">
+              <p className="transcript-interim text-sm md:text-base leading-relaxed font-semibold text-white/70">
                 {highlightKeywords(interimTranscript, keywords)}
               </p>
             </div>
           )}
 
           {/* 確定した文字起こし */}
-          <div className="space-y-2 md:space-y-3">
+          <div className="space-y-3 md:space-y-4">
             {!isInitialized ? (
               <p className="text-white text-opacity-70 text-sm text-center py-8">
                 <span className="animate-pulse">読み込み中...</span>
@@ -438,17 +437,19 @@ export default function TranscriptionApp() {
                 音声認識を開始すると、ここに文字起こしが表示されます。
               </p>
             ) : (
-              <div className="space-y-2 md:space-y-3">
+              <div className="space-y-3 md:space-y-4">
                 {transcripts.map((t, index) => (
                   <div
                     key={t.timestamp}
-                    className="p-3 md:p-5 glass-card rounded-2xl shadow-lg hover:scale-[1.02] hover:border-cyan-500/30 transition-all fade-in-up"
+                    className="fade-in-up"
                     style={{ animationDelay: `${index * 0.05}s` }}
                   >
-                    <p className="text-xs text-gray-400 mb-2 md:mb-3 font-medium">
-                      🕐 {new Date(t.timestamp).toLocaleTimeString('ja-JP')}
-                    </p>
-                    <p className="transcript-confirmed text-white text-sm md:text-base leading-relaxed font-medium">
+                    {showTimestamps && (
+                      <p className="text-xs text-white/30 mb-1 font-medium">
+                        {new Date(t.timestamp).toLocaleTimeString('ja-JP')}
+                      </p>
+                    )}
+                    <p className="transcript-confirmed text-white text-sm md:text-base leading-relaxed font-semibold">
                       {highlightKeywords(t.text, keywords)}
                     </p>
                   </div>
@@ -456,18 +457,6 @@ export default function TranscriptionApp() {
               </div>
             )}
           </div>
-
-          {/* 全文表示 */}
-          {fullTranscript && (
-            <div className="mt-4 md:mt-6 p-4 md:p-5 glass-dark rounded-2xl shadow-xl border border-gray-700 fade-in-up">
-              <h3 className="text-xs md:text-sm font-bold mb-2 md:mb-3 text-gray-300 flex items-center gap-2">
-                📄 全文
-              </h3>
-              <p className="transcript-confirmed text-xs md:text-sm text-white whitespace-pre-wrap leading-relaxed font-medium">
-                {highlightKeywords(fullTranscript, keywords)}
-              </p>
-            </div>
-          )}
           </div>
         )}
       </div>
