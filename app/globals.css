@@ -111,7 +111,6 @@ body {
 }
 
 .lyrics-text {
-  font-size: 1.125rem;
   line-height: 1.8;
   letter-spacing: 0.02em;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -123,7 +122,6 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   font-weight: 600;
-  font-size: 1.25rem;
   animation: textGlow 2s ease-in-out infinite;
 }
 

@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { usePersistentTranscription } from '@/hooks/usePersistentTranscription';
 import { generateWordCloudData } from '@/lib/keyword-extractor';
-import WordCloud3D from './WordCloud3D';
 import type { Word } from '@/types/speech';
 import { logger } from '@/lib/logger';
+
+// 3Dコンポーネントは動的インポートでSSRを無効化
+const WordCloud3D = dynamic(() => import('./WordCloud3D'), { ssr: false });
 
 const LOCATION = 'components/TranscriptionApp.tsx';
 
@@ -160,6 +163,44 @@ export default function TranscriptionApp() {
     }
   };
 
+  const handleWordClick = useCallback((clickedWord: Word) => {
+    logger.info(
+      `${LOCATION}:handleWordClick`,
+      'ユーザー操作: 単語クリック',
+      `単語「${clickedWord.text}」の重要度を上げました`,
+      { word: clickedWord.text, currentFrequency: clickedWord.frequency }
+    );
+
+    setWordCloudData((prevWords) =>
+      prevWords.map((word) =>
+        word.text === clickedWord.text && word.position === clickedWord.position
+          ? {
+              ...word,
+              frequency: word.frequency + 1,
+              // サイズも少し大きくする（頻度に応じて）
+              size: Math.min(word.size * 1.05, 2),
+            }
+          : word
+      )
+    );
+  }, []);
+
+  const handleWordDelete = useCallback((deletedWord: Word) => {
+    logger.info(
+      `${LOCATION}:handleWordDelete`,
+      'ユーザー操作: 単語削除',
+      `単語「${deletedWord.text}」を削除しました`,
+      { word: deletedWord.text }
+    );
+
+    setWordCloudData((prevWords) =>
+      prevWords.filter(
+        (word) =>
+          !(word.text === deletedWord.text && word.position === deletedWord.position)
+      )
+    );
+  }, []);
+
   return (
     <div className="flex flex-col h-screen">
       {/* ヘッダー */}
@@ -172,7 +213,7 @@ export default function TranscriptionApp() {
             <div className="flex gap-2 md:gap-3">
               <button
                 onClick={isListening ? stopListening : startListening}
-                className={`flex-1 md:flex-none px-4 md:px-6 py-3 min-h-[44px] rounded-xl font-semibold glass-button ${
+                className={`flex-1 md:flex-none px-4 md:px-6 py-3 min-h-[2.75rem] rounded-xl font-semibold glass-button ${
                   isListening ? 'glass-button-active' : 'glass-button-success'
                 } text-white shadow-lg text-sm md:text-base`}
               >
@@ -181,14 +222,14 @@ export default function TranscriptionApp() {
               <button
                 onClick={handleManualSync}
                 disabled={syncStatus.isSyncing}
-                className="px-3 md:px-4 py-3 min-h-[44px] glass-button rounded-xl font-semibold text-white shadow-lg disabled:opacity-50 text-sm md:text-base"
+                className="px-3 md:px-4 py-3 min-h-[2.75rem] glass-button rounded-xl font-semibold text-white shadow-lg disabled:opacity-50 text-sm md:text-base"
                 title="全データをSupabaseにバックアップ"
               >
                 {syncStatus.isSyncing ? '🔄 同期中...' : '💾 保存'}
               </button>
               <button
                 onClick={handleClear}
-                className="px-3 md:px-6 py-3 min-h-[44px] glass-button rounded-xl font-semibold text-white shadow-lg text-sm md:text-base"
+                className="px-3 md:px-6 py-3 min-h-[2.75rem] glass-button rounded-xl font-semibold text-white shadow-lg text-sm md:text-base"
               >
                 🗑️ クリア
               </button>
@@ -224,8 +265,12 @@ export default function TranscriptionApp() {
       {/* メインコンテンツ */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* 3Dワードクラウド */}
-        <div className="h-64 md:h-auto md:flex-1 relative">
-          <WordCloud3D words={wordCloudData} />
+        <div className="h-[16rem] md:h-auto md:flex-1 relative">
+          <WordCloud3D
+            words={wordCloudData}
+            onWordClick={handleWordClick}
+            onWordDelete={handleWordDelete}
+          />
           {!isListening && wordCloudData.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-4 md:p-8">
               <div className="glass-dark text-white text-center p-6 md:p-10 rounded-3xl max-w-md shadow-2xl">
@@ -241,44 +286,44 @@ export default function TranscriptionApp() {
 
         {/* 文字起こし表示 */}
         <div className="flex-1 md:w-1/2 lg:w-96 md:flex-none glass-dark p-4 md:p-6 overflow-y-auto border-t md:border-t-0 md:border-l border-white border-opacity-10">
-          <h2 className="text-2xl font-bold mb-6 text-white drop-shadow-lg">
+          <h2 className="text-xl md:text-2xl font-bold mb-4 md:mb-6 text-white drop-shadow-lg">
             📝 文字起こし
           </h2>
 
           {/* リアルタイム（仮確定） */}
           {interimTranscript && (
-            <div className="mb-4 p-4 glass-card rounded-2xl border border-cyan-400 shadow-lg shadow-cyan-500/20 fade-in-up">
-              <p className="text-sm text-cyan-400 mb-2 font-semibold flex items-center gap-2">
+            <div className="mb-3 md:mb-4 p-3 md:p-4 glass-card rounded-2xl border border-cyan-400 shadow-lg shadow-cyan-500/20 fade-in-up">
+              <p className="text-xs md:text-sm text-cyan-400 mb-2 font-semibold flex items-center gap-2">
                 <span className="animate-pulse">●</span> 認識中...
               </p>
-              <p className="text-white italic lyrics-text">
+              <p className="text-white italic text-sm md:text-base leading-relaxed">
                 {highlightKeywords(interimTranscript, keywords)}
               </p>
             </div>
           )}
 
           {/* 確定した文字起こし */}
-          <div className="space-y-3">
+          <div className="space-y-2 md:space-y-3">
             {!isInitialized ? (
               <p className="text-white text-opacity-70 text-sm text-center py-8">
                 <span className="animate-pulse">読み込み中...</span>
               </p>
             ) : transcripts.length === 0 ? (
-              <p className="text-white text-opacity-70 text-sm text-center py-8">
+              <p className="text-white text-opacity-70 text-xs md:text-sm text-center py-6 md:py-8">
                 音声認識を開始すると、ここに文字起こしが表示されます。
               </p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2 md:space-y-3">
                 {transcripts.map((t, index) => (
                   <div
                     key={t.timestamp}
-                    className="p-5 glass-card rounded-2xl shadow-lg hover:scale-[1.02] hover:border-cyan-500/30 transition-all fade-in-up"
+                    className="p-3 md:p-5 glass-card rounded-2xl shadow-lg hover:scale-[1.02] hover:border-cyan-500/30 transition-all fade-in-up"
                     style={{ animationDelay: `${index * 0.05}s` }}
                   >
-                    <p className="text-xs text-gray-400 mb-3 font-medium">
+                    <p className="text-xs text-gray-400 mb-2 md:mb-3 font-medium">
                       🕐 {new Date(t.timestamp).toLocaleTimeString('ja-JP')}
                     </p>
-                    <p className="text-white lyrics-text">
+                    <p className="text-white text-sm md:text-base leading-relaxed">
                       {highlightKeywords(t.text, keywords)}
                     </p>
                   </div>
@@ -289,11 +334,11 @@ export default function TranscriptionApp() {
 
           {/* 全文表示 */}
           {fullTranscript && (
-            <div className="mt-6 p-5 glass-dark rounded-2xl shadow-xl border border-gray-700 fade-in-up">
-              <h3 className="text-sm font-bold mb-3 text-gray-300 flex items-center gap-2">
+            <div className="mt-4 md:mt-6 p-4 md:p-5 glass-dark rounded-2xl shadow-xl border border-gray-700 fade-in-up">
+              <h3 className="text-xs md:text-sm font-bold mb-2 md:mb-3 text-gray-300 flex items-center gap-2">
                 📄 全文
               </h3>
-              <p className="text-sm text-white whitespace-pre-wrap leading-relaxed lyrics-text">
+              <p className="text-xs md:text-sm text-white whitespace-pre-wrap leading-relaxed">
                 {highlightKeywords(fullTranscript, keywords)}
               </p>
             </div>
@@ -302,9 +347,10 @@ export default function TranscriptionApp() {
       </div>
 
       {/* フッター */}
-      <footer className="glass-header text-white p-3 text-center text-sm border-t border-white border-opacity-10">
+      <footer className="glass-header text-white p-2 md:p-3 text-center text-xs md:text-sm border-t border-white border-opacity-10">
         <p className="opacity-90">
-          Chrome/Edge推奨 | Web Speech API使用 | マイクの使用許可が必要です
+          <span className="hidden md:inline">Chrome/Edge推奨 | Web Speech API使用 | </span>
+          マイクの使用許可が必要です
         </p>
       </footer>
     </div>

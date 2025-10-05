@@ -29,7 +29,10 @@ const STOP_WORDS = new Set([
   'として', 'において', 'に対して', 'に関する', 'によって', 'により', 'による', 'とともに', 'と共に', 'について',
   'あり', 'おり', 'まで', 'など', 'たり', 'その他', 'その後', 'それぞれ', 'たち', 'ます', 'です', 'ん',
   'い', 'せ', 'だっ', 'あっ', 'う', 'ので', 'のみ', 'でき', 'き', 'つ', 'における', 'いう', 'といった',
-  'なら', '特に', '及び', 'では', 'にて', 'ながら', 'かつて', 'お', 'ほど', 'ものの', 'に対する', 'ほとんど', 'という', 'ず', 'なり'
+  'なら', '特に', '及び', 'では', 'にて', 'ながら', 'かつて', 'お', 'ほど', 'ものの', 'に対する', 'ほとんど', 'という', 'ず', 'なり',
+  // フィラー（話し言葉のノイズ）
+  'あー', 'えー', 'うー', 'おー', 'んー', 'まあ', 'ま', 'えっと', 'えーと', 'あのー', 'あの', 'その', 'そのー',
+  'なんか', 'ちょっと', 'やっぱり', 'やっぱ', 'っていうか', 'まぁ', 'ねえ', 'さあ', 'ほら', 'じゃあ', 'んと'
 ]);
 
 // 英語のストップワード
@@ -82,6 +85,31 @@ export function extractKeywords(text: string): Map<string, number> {
   return wordFrequency;
 }
 
+// 単語の重要度を計算（頻度重視、3回以上でボーナス）
+function calculateWordWeight(word: string, frequency: number): number {
+  let weight = frequency;
+
+  // 3回以上出現した単語にのみボーナスを適用
+  if (frequency >= 3) {
+    // カタカナ語（全体がカタカナ）→ 固有名詞や専門用語の可能性が高い
+    if (/^[ァ-ヶー]+$/.test(word)) {
+      weight *= 1.2;
+    }
+
+    // 英大文字開始 → 固有名詞の可能性が高い
+    if (/^[A-Z]/.test(word)) {
+      weight *= 1.2;
+    }
+
+    // 長い単語（3文字以上）→ 重要な概念の可能性が高い
+    if (word.length >= 3) {
+      weight *= 1.2;
+    }
+  }
+
+  return weight;
+}
+
 export function generateWordCloudData(
   transcripts: string[],
   maxWords: number = 50
@@ -90,21 +118,27 @@ export function generateWordCloudData(
   const fullText = transcripts.join(' ');
   const wordFrequency = extractKeywords(fullText);
 
-  // 頻度順にソート
-  const sortedWords = Array.from(wordFrequency.entries())
-    .sort((a, b) => b[1] - a[1])
+  // 重み付けスコアを計算してソート
+  const weightedWords = Array.from(wordFrequency.entries()).map(([word, freq]) => ({
+    word,
+    frequency: freq,
+    weight: calculateWordWeight(word, freq),
+  }));
+
+  const sortedWords = weightedWords
+    .sort((a, b) => b.weight - a.weight)
     .slice(0, maxWords);
 
   if (sortedWords.length === 0) return [];
 
-  const maxFrequency = sortedWords[0][1];
-  const minFrequency = sortedWords[sortedWords.length - 1][1];
+  const maxWeight = sortedWords[0].weight;
+  const minWeight = sortedWords[sortedWords.length - 1].weight;
 
   // 3D空間にランダムに配置
-  return sortedWords.map(([text, frequency], index) => {
-    // 頻度に基づいてサイズを計算（0.5〜3の範囲）
-    const normalizedFreq = (frequency - minFrequency) / (maxFrequency - minFrequency || 1);
-    const size = 0.5 + normalizedFreq * 2.5;
+  return sortedWords.map(({ word, frequency, weight }) => {
+    // 重み付けスコアに基づいてサイズを計算（0.5〜2の範囲）
+    const normalizedWeight = (weight - minWeight) / (maxWeight - minWeight || 1);
+    const size = 0.5 + normalizedWeight * 1.5;
 
     // 球体状にランダム配置
     const radius = 10;
@@ -115,7 +149,7 @@ export function generateWordCloudData(
     const z = radius * Math.cos(phi);
 
     return {
-      text,
+      text: word,
       timestamp: Date.now(),
       frequency,
       position: [x, y, z],
