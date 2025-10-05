@@ -163,46 +163,49 @@ export default function TranscriptionApp() {
   return (
     <div className="flex flex-col h-screen">
       {/* ヘッダー */}
-      <header className="glass-header text-white p-4 sticky top-0 z-50">
+      <header className="glass-header text-white p-3 md:p-4 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-2">
-            <h1 className="text-2xl font-bold drop-shadow-lg">Humanity1 - 3D Word Cloud</h1>
-            <div className="flex gap-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-2">
+            <h1 className="text-lg md:text-xl lg:text-2xl font-bold drop-shadow-lg">
+              Humanity1 - 3D Word Cloud
+            </h1>
+            <div className="flex gap-2 md:gap-3">
               <button
                 onClick={isListening ? stopListening : startListening}
-                className={`px-6 py-2 rounded-xl font-semibold glass-button ${
+                className={`flex-1 md:flex-none px-4 md:px-6 py-3 min-h-[44px] rounded-xl font-semibold glass-button ${
                   isListening ? 'glass-button-active' : 'glass-button-success'
-                } text-white shadow-lg`}
+                } text-white shadow-lg text-sm md:text-base`}
               >
                 {isListening ? '⏸️ 停止' : '🎤 開始'}
               </button>
               <button
                 onClick={handleManualSync}
                 disabled={syncStatus.isSyncing}
-                className="px-4 py-2 glass-button rounded-xl font-semibold text-white shadow-lg disabled:opacity-50"
+                className="px-3 md:px-4 py-3 min-h-[44px] glass-button rounded-xl font-semibold text-white shadow-lg disabled:opacity-50 text-sm md:text-base"
                 title="全データをSupabaseにバックアップ"
               >
                 {syncStatus.isSyncing ? '🔄 同期中...' : '💾 保存'}
               </button>
               <button
                 onClick={handleClear}
-                className="px-6 py-2 glass-button rounded-xl font-semibold text-white shadow-lg"
+                className="px-3 md:px-6 py-3 min-h-[44px] glass-button rounded-xl font-semibold text-white shadow-lg text-sm md:text-base"
               >
                 🗑️ クリア
               </button>
             </div>
           </div>
           {/* 同期状態の表示 */}
-          <div className="flex items-center gap-4 text-xs opacity-80">
+          <div className="flex flex-wrap items-center gap-2 md:gap-4 text-xs opacity-80">
             <span>📦 表示中: {transcripts.length}件</span>
             {syncStatus.isAutoSyncRunning && (
               <span className="flex items-center gap-1">
                 <span className="animate-pulse text-green-400">●</span>
-                自動同期: 有効
+                <span className="hidden sm:inline">自動同期: 有効</span>
+                <span className="sm:hidden">同期中</span>
               </span>
             )}
             {syncStatus.lastSyncTime > 0 && (
-              <span>
+              <span className="hidden md:inline">
                 最終同期: {new Date(syncStatus.lastSyncTime).toLocaleTimeString('ja-JP')}
               </span>
             )}
@@ -219,16 +222,16 @@ export default function TranscriptionApp() {
       )}
 
       {/* メインコンテンツ */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* 3Dワードクラウド */}
-        <div className="flex-1 relative">
+        <div className="h-64 md:h-auto md:flex-1 relative">
           <WordCloud3D words={wordCloudData} />
           {!isListening && wordCloudData.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-8">
-              <div className="glass-dark text-white text-center p-10 rounded-3xl max-w-md shadow-2xl">
-                <p className="text-3xl mb-4">🎤</p>
-                <p className="text-2xl font-bold mb-3">マイクボタンを押して開始</p>
-                <p className="text-sm opacity-90 leading-relaxed">
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-4 md:p-8">
+              <div className="glass-dark text-white text-center p-6 md:p-10 rounded-3xl max-w-md shadow-2xl">
+                <p className="text-2xl md:text-3xl mb-3 md:mb-4">🎤</p>
+                <p className="text-xl md:text-2xl font-bold mb-2 md:mb-3">マイクボタンを押して開始</p>
+                <p className="text-xs md:text-sm opacity-90 leading-relaxed">
                   音声がリアルタイムで美しい3D空間に可視化されます
                 </p>
               </div>
@@ -237,7 +240,7 @@ export default function TranscriptionApp() {
         </div>
 
         {/* 文字起こし表示 */}
-        <div className="w-full lg:w-96 glass-dark p-6 overflow-y-auto border-l border-white border-opacity-10">
+        <div className="flex-1 md:w-1/2 lg:w-96 md:flex-none glass-dark p-4 md:p-6 overflow-y-auto border-t md:border-t-0 md:border-l border-white border-opacity-10">
           <h2 className="text-2xl font-bold mb-6 text-white drop-shadow-lg">
             📝 文字起こし
           </h2>
